@@ -37,6 +37,13 @@ struct JniIds {
     jmethodID dataLoaderOnCreate;
     jmethodID dataLoaderOnPrepareImage;
 
+    jclass installationFile;
+    jmethodID installationFileCtor;
+
+    jclass arrayList;
+    jmethodID arrayListCtor;
+    jmethodID arrayListAdd;
+
     JniIds(JNIEnv* env) {
         dataLoaderParams = (jclass)env->NewGlobalRef(
                 FindClassOrDie(env, "android/content/pm/DataLoaderParams"));
@@ -53,7 +60,8 @@ struct JniIds {
                 FindClassOrDie(env, "android/service/dataloader/DataLoaderService");
         dataLoaderServiceOnCreateDataLoader =
                 GetMethodIDOrDie(env, dataLoaderService, "onCreateDataLoader",
-                                 "()Landroid/service/dataloader/DataLoaderService$DataLoader;");
+                                 "(Landroid/content/pm/DataLoaderParams;)Landroid/service/"
+                                 "dataloader/DataLoaderService$DataLoader;");
 
         auto dataLoader =
                 FindClassOrDie(env, "android/service/dataloader/DataLoaderService$DataLoader");
@@ -64,6 +72,15 @@ struct JniIds {
         dataLoaderOnPrepareImage =
                 GetMethodIDOrDie(env, dataLoader, "onPrepareImage",
                                  "(Ljava/util/Collection;Ljava/util/Collection;)Z");
+
+        arrayList = (jclass)env->NewGlobalRef(FindClassOrDie(env, "java/util/ArrayList"));
+        arrayListCtor = GetMethodIDOrDie(env, arrayList, "<init>", "(I)V");
+        arrayListAdd = GetMethodIDOrDie(env, arrayList, "add", "(Ljava/lang/Object;)Z");
+
+        installationFile = (jclass)env->NewGlobalRef(
+                FindClassOrDie(env, "android/content/pm/InstallationFile"));
+        installationFileCtor =
+                GetMethodIDOrDie(env, installationFile, "<init>", "(ILjava/lang/String;J[B[B)V");
     }
 };
 
@@ -92,7 +109,7 @@ bool ManagedDataLoader::onCreate(const android::dataloader::DataLoaderParams&,
     jobject ifsc =
             env->NewObject(jni.fileSystemConnector, jni.fileSystemConnectorConstruct, (jlong)ifs);
 
-    auto dataLoader = env->CallObjectMethod(service, jni.dataLoaderServiceOnCreateDataLoader);
+    auto dataLoader = env->CallObjectMethod(service, jni.dataLoaderServiceOnCreateDataLoader, dlp);
     if (!dataLoader) {
         LOG(ERROR) << "Failed to create Java DataLoader.";
         return false;
@@ -114,15 +131,36 @@ void ManagedDataLoader::onDestroy() {
     mDataLoader = nullptr;
 }
 
-// FS callbacks.
-bool ManagedDataLoader::onPrepareImage(jobject addedFiles, jobject removedFiles) {
+static jobject toJavaArrayList(JNIEnv* env, const JniIds& jni,
+                               const DataLoaderInstallationFiles& files) {
+    jobject arrayList =
+            env->NewObject(jni.arrayList, jni.arrayListCtor, static_cast<jint>(files.size()));
+    for (const auto& file : files) {
+        const auto location(file.location);
+        const auto size(file.size);
+
+        jstring name = env->NewStringUTF(file.name);
+        jbyteArray metadata = env->NewByteArray(file.metadata.size);
+        if (metadata != nullptr) {
+            env->SetByteArrayRegion(metadata, 0, file.metadata.size,
+                                    (const jbyte*)file.metadata.data);
+        }
+
+        jobject jfile = env->NewObject(jni.installationFile, jni.installationFileCtor, location,
+                                       name, size, metadata, nullptr);
+        env->CallBooleanMethod(arrayList, jni.arrayListAdd, jfile);
+    }
+    return arrayList;
+}
+
+bool ManagedDataLoader::onPrepareImage(const DataLoaderInstallationFiles& addedFiles) {
     CHECK(mDataLoader);
 
     auto env = GetOrAttachJNIEnvironment(mJvm);
     const auto& jni = jniIds(env);
 
-    return env->CallBooleanMethod(mDataLoader, jni.dataLoaderOnPrepareImage, addedFiles,
-                                  removedFiles);
+    jobject jaddedFiles = toJavaArrayList(env, jni, addedFiles);
+    return env->CallBooleanMethod(mDataLoader, jni.dataLoaderOnPrepareImage, jaddedFiles, nullptr);
 }
 
 } // namespace android::dataloader

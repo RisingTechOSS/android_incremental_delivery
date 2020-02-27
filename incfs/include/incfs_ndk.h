@@ -140,12 +140,15 @@ bool IncFs_IsEnabled();
 IncFsFeatures IncFs_Features();
 
 bool IncFs_IsIncFsPath(const char* path);
+
 static inline bool IncFs_IsValidFileId(IncFsFileId fileId) {
     return memcmp(&fileId, &kIncFsInvalidFileId, sizeof(fileId)) != 0;
 }
 
 int IncFs_FileIdToString(IncFsFileId id, char* out);
 IncFsFileId IncFs_FileIdFromString(const char* in);
+
+IncFsFileId IncFs_FileIdFromMetadata(IncFsSpan metadata);
 
 IncFsControl IncFs_Mount(const char* backingPath, const char* targetDir, IncFsMountOptions options);
 IncFsControl IncFs_Open(const char* dir);
@@ -158,8 +161,6 @@ IncFsErrorCode IncFs_Root(IncFsControl control, char buffer[], size_t* bufferSiz
 
 IncFsErrorCode IncFs_MakeFile(IncFsControl control, const char* path, int32_t mode, IncFsFileId id,
                               IncFsNewFileParams params);
-IncFsErrorCode IncFs_MakeFileNoId(IncFsControl control, const char* path, int32_t mode,
-                                  IncFsNewFileParams params);
 IncFsErrorCode IncFs_MakeDir(IncFsControl control, const char* path, int32_t mode);
 
 IncFsErrorCode IncFs_GetMetadataById(IncFsControl control, IncFsFileId id, char buffer[],
@@ -171,6 +172,7 @@ IncFsErrorCode IncFs_GetSignatureById(IncFsControl control, IncFsFileId id, char
                                       size_t* bufferSize);
 IncFsErrorCode IncFs_GetSignatureByPath(IncFsControl control, const char* path, char buffer[],
                                         size_t* bufferSize);
+IncFsErrorCode IncFs_UnsafeGetSignatureByPath(const char* path, char buffer[], size_t* bufferSize);
 
 IncFsFileId IncFs_GetId(IncFsControl control, const char* path);
 

@@ -25,6 +25,9 @@
 #include <dirent.h>
 #include <errno.h>
 #include <libgen.h>
+#include <openssl/sha.h>
+#include <selinux/android.h>
+#include <selinux/selinux.h>
 #include <sys/mount.h>
 #include <sys/poll.h>
 #include <sys/stat.h>
@@ -371,6 +374,23 @@ IncFsFileId IncFs_FileIdFromString(const char* in) {
     return toFileIdImpl({in, kIncFsFileIdStringLength});
 }
 
+IncFsFileId IncFs_FileIdFromMetadata(IncFsSpan metadata) {
+    IncFsFileId id = {};
+    if (size_t(metadata.size) <= sizeof(id)) {
+        memcpy(&id, metadata.data, metadata.size);
+    } else {
+        uint8_t buffer[SHA_DIGEST_LENGTH];
+        static_assert(sizeof(buffer) >= sizeof(id));
+
+        SHA_CTX ctx;
+        SHA1_Init(&ctx);
+        SHA1_Update(&ctx, metadata.data, metadata.size);
+        SHA1_Final(buffer, &ctx);
+        memcpy(&id, buffer, sizeof(id));
+    }
+    return id;
+}
+
 IncFsControl IncFs_Mount(const char* backingPath, const char* targetDir,
                          IncFsMountOptions options) {
     if (!init().enabledAndReady()) {
@@ -405,6 +425,12 @@ IncFsControl IncFs_Mount(const char* backingPath, const char* targetDir,
         const auto error = errno;
         PLOG(ERROR) << "[incfs] Failed to mount IncFS filesystem: " << targetDir;
         return {-error, -error, -error};
+    }
+
+    if (const auto err = selinux_android_restorecon(targetDir, SELINUX_ANDROID_RESTORECON_RECURSE);
+        err != 0) {
+        PLOG(ERROR) << "[incfs] Failed to restorecon: " << err;
+        return {err, err, err};
     }
 
     registry().addRoot(targetDir);
@@ -456,8 +482,13 @@ IncFsErrorCode IncFs_MakeFile(IncFsControl control, const char* path, int32_t mo
                               IncFsNewFileParams params) {
     auto [root, subpath] = registry().rootAndSubpathFor(path);
     if (root.empty()) {
-        PLOG(WARNING) << "[incfs] makeFile failed for path " << path;
+        PLOG(WARNING) << "[incfs] makeFile failed for path " << path << ", root is empty.";
         return -EINVAL;
+    }
+    if (params.size < 0) {
+        LOG(WARNING) << "[incfs] makeFile failed for path " << path
+                     << ", size is invalid: " << params.size;
+        return -ERANGE;
     }
 
     const auto [subdir, name] = path::splitDirBase(subpath);
@@ -608,6 +639,13 @@ IncFsErrorCode IncFs_GetSignatureByPath(IncFsControl control, const char* path, 
     const auto pathRoot = registry().rootFor(path);
     const auto root = ::root(control.cmd);
     if (root.empty() || root != pathRoot) {
+        return -EINVAL;
+    }
+    return IncFs_UnsafeGetSignatureByPath(path, buffer, bufferSize);
+}
+
+IncFsErrorCode IncFs_UnsafeGetSignatureByPath(const char* path, char buffer[], size_t* bufferSize) {
+    if (!isIncFsPath(path)) {
         return -EINVAL;
     }
     auto fd = openRaw(path);
