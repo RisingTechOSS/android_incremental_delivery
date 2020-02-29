@@ -32,7 +32,6 @@ namespace {
 
 using namespace android::dataloader;
 using namespace std::literals;
-using android::base::unique_fd;
 
 using FileId = android::incfs::FileId;
 using RawMetadata = android::incfs::RawMetadata;
@@ -399,9 +398,9 @@ public:
                                    offsetBytes, lengthBytes, incomingFd);
     }
 
-    int openWrite(FileId fid) const { return android::incfs::openWrite(mControl, fid).release(); }
+    int openWrite(FileId fid) const { return android::incfs::openWrite(mControl, fid); }
 
-    int writeBlocks(std::span<const IncFsDataBlock> blocks) const {
+    int writeBlocks(Span<const IncFsDataBlock> blocks) const {
         return android::incfs::writeBlocks(blocks);
     }
 
@@ -611,7 +610,7 @@ int DataLoader_FilesystemConnector_openWrite(DataLoaderFilesystemConnectorPtr if
 int DataLoader_FilesystemConnector_writeBlocks(DataLoaderFilesystemConnectorPtr ifs,
                                                const IncFsDataBlock blocks[], int blocksCount) {
     auto connector = static_cast<DataLoaderConnector*>(ifs);
-    return connector->writeBlocks({blocks, blocksCount});
+    return connector->writeBlocks({blocks, static_cast<size_t>(blocksCount)});
 }
 
 int DataLoader_FilesystemConnector_getRawMetadata(DataLoaderFilesystemConnectorPtr ifs,

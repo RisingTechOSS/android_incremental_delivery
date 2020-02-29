@@ -15,10 +15,12 @@
  */
 #pragma once
 
-#include "incfs.h"
+#include <errno.h>
 
 #include <optional>
 #include <string>
+
+#include "incfs.h"
 
 namespace android::incfs {
 
@@ -225,14 +227,14 @@ inline WaitResult waitForPageReads(Control control, std::chrono::milliseconds ti
     return WaitResult(err);
 }
 
-inline android::base::unique_fd openWrite(Control control, FileId fileId) {
-    return android::base::unique_fd(IncFs_OpenWriteById(control, fileId));
+inline int openWrite(Control control, FileId fileId) {
+    return IncFs_OpenWriteById(control, fileId);
 }
-inline android::base::unique_fd openWrite(Control control, std::string_view path) {
-    return android::base::unique_fd(IncFs_OpenWriteByPath(control, details::c_str(path)));
+inline int openWrite(Control control, std::string_view path) {
+    return IncFs_OpenWriteByPath(control, details::c_str(path));
 }
 
-inline ErrorCode writeBlocks(std::span<const DataBlock> blocks) {
+inline ErrorCode writeBlocks(Span<const DataBlock> blocks) {
     return IncFs_WriteBlocks(blocks.data(), blocks.size());
 }
 

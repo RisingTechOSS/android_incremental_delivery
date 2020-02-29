@@ -15,21 +15,19 @@
  */
 #pragma once
 
-#include "dataloader_ndk.h"
-
-#include "incfs.h"
-
-#include <android-base/unique_fd.h>
-
 #include <functional>
 #include <memory>
-#include <span>
 #include <string>
 #include <vector>
+
+#include "dataloader_ndk.h"
+#include "incfs.h"
 
 namespace android::dataloader {
 
 using DataLoaderStatus = ::DataLoaderStatus;
+template <class T>
+using Span = android::incfs::Span<T>;
 
 struct DataLoader;
 struct DataLoaderParams;
@@ -47,11 +45,11 @@ using ServiceConnectorPtr = DataLoaderServiceConnectorPtr;
 using ServiceParamsPtr = DataLoaderServiceParamsPtr;
 
 using DataLoaderPtr = std::unique_ptr<DataLoader>;
-using DataLoaderInstallationFiles = std::span<const ::DataLoaderInstallationFile>;
-using PendingReads = std::span<const ReadInfo>;
-using PageReads = std::span<const ReadInfo>;
+using DataLoaderInstallationFiles = Span<const ::DataLoaderInstallationFile>;
+using PendingReads = Span<const ReadInfo>;
+using PageReads = Span<const ReadInfo>;
 using RawMetadata = std::vector<char>;
-using DataBlocks = std::span<const DataBlock>;
+using DataBlocks = Span<const DataBlock>;
 
 constexpr int kBlockSize = INCFS_DATA_FILE_BLOCK_SIZE;
 
@@ -69,11 +67,11 @@ struct DataLoader {
     virtual void onDestroy() = 0;
 
     // FS callbacks.
-    virtual bool onPrepareImage(const DataLoaderInstallationFiles& addedFiles) = 0;
+    virtual bool onPrepareImage(DataLoaderInstallationFiles addedFiles) = 0;
 
     // IFS callbacks.
-    virtual void onPendingReads(const PendingReads& pendingReads) = 0;
-    virtual void onPageReads(const PageReads& pageReads) = 0;
+    virtual void onPendingReads(PendingReads pendingReads) = 0;
+    virtual void onPageReads(PageReads pageReads) = 0;
 };
 
 struct DataLoaderParams {
@@ -116,7 +114,8 @@ private:
 };
 
 struct FilesystemConnector : public DataLoaderFilesystemConnector {
-    android::base::unique_fd openWrite(FileId fid);
+    // Returns a file descriptor that needs to be closed.
+    int openWrite(FileId fid);
     int writeBlocks(DataBlocks blocks);
     RawMetadata getRawMetadata(FileId fid);
 };
