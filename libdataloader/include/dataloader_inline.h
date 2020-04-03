@@ -114,8 +114,8 @@ inline DataLoaderInstallationFile::DataLoaderInstallationFile(DataLoaderLocation
                                                               RawMetadata&& metadata)
       : mLocation(location), mName(std::move(name)), mSize(size), mMetadata(std::move(metadata)) {}
 
-inline int FilesystemConnector::openWrite(FileId fid) {
-    return DataLoader_FilesystemConnector_openWrite(this, fid);
+inline android::incfs::UniqueFd FilesystemConnector::openForSpecialOps(FileId fid) {
+    return android::incfs::UniqueFd(DataLoader_FilesystemConnector_openForSpecialOps(this, fid));
 }
 
 inline int FilesystemConnector::writeBlocks(DataBlocks blocks) {
@@ -130,6 +130,10 @@ inline RawMetadata FilesystemConnector::getRawMetadata(FileId fid) {
     }
     metadata.resize(size);
     return metadata;
+}
+
+inline bool FilesystemConnector::setParams(DataLoaderFilesystemParams params) {
+    return DataLoader_FilesystemConnector_setParams(this, params);
 }
 
 inline bool StatusListener::reportStatus(DataLoaderStatus status) {
