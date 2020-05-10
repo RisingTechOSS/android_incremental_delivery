@@ -18,6 +18,7 @@
 
 #include "incfs.h"
 
+#include <IncrementalProperties.sysprop.h>
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/no_destructor.h>
@@ -54,6 +55,7 @@
 
 using namespace std::literals;
 using namespace android::incfs;
+using namespace android::sysprop;
 namespace ab = android::base;
 
 struct IncFsControl final {
@@ -137,8 +139,7 @@ static bool isFsAvailable() {
 }
 
 static std::string_view incFsPropertyValue() {
-    static const ab::NoDestructor<std::string> kValue{
-            ab::GetProperty("ro.incremental.enable"s, {})};
+    static const ab::NoDestructor<std::string> kValue{IncrementalProperties::enable().value_or("")};
     return *kValue;
 }
 
@@ -971,21 +972,6 @@ static int waitForReads(int fd, int32_t timeoutMs, incfs_pending_read_info pendi
     }
     *pendingReadsBufferSize = res / sizeof(*pendingReadsBuffer);
     return 0;
-}
-
-IncFsErrorCode IncFs_DropPendingReads(const IncFsControl* control) {
-    if (!control || control->pendingReads < 0) {
-        return -EINVAL;
-    }
-
-    incfs_pending_read_info buffer[INCFS_DEFAULT_PENDING_READ_BUFFER_SIZE];
-    auto res = ::read(control->pendingReads, buffer, sizeof(buffer));
-    if (res < 0) {
-        const auto error = errno;
-        PLOG(ERROR) << "read() failed";
-        return -error;
-    }
-    return res % sizeof(*buffer);
 }
 
 IncFsErrorCode IncFs_WaitForPendingReads(const IncFsControl* control, int32_t timeoutMs,
