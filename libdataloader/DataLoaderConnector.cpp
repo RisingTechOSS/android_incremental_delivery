@@ -18,6 +18,8 @@
 #include <android-base/logging.h>
 #include <fcntl.h>
 #include <nativehelper/JNIHelp.h>
+#include <nativehelper/scoped_local_ref.h>
+#include <nativehelper/scoped_utf_chars.h>
 #include <sys/stat.h>
 #include <utils/Looper.h>
 
@@ -544,20 +546,21 @@ DataLoaderParamsPair DataLoaderParamsPair::createFromManaged(JNIEnv* env, jobjec
 
     const DataLoaderType type = (DataLoaderType)env->GetIntField(managedParams, jni.paramsType);
 
-    std::string packageName(
-            env->GetStringUTFChars((jstring)env->GetObjectField(managedParams,
-                                                                jni.paramsPackageName),
-                                   nullptr));
-    std::string className(
-            env->GetStringUTFChars((jstring)env->GetObjectField(managedParams, jni.paramsClassName),
-                                   nullptr));
-    std::string arguments(
-            env->GetStringUTFChars((jstring)env->GetObjectField(managedParams, jni.paramsArguments),
-                                   nullptr));
-
-    return DataLoaderParamsPair(android::dataloader::DataLoaderParams(type, std::move(packageName),
-                                                                      std::move(className),
-                                                                      std::move(arguments)));
+    ScopedLocalRef<jstring> paramsPackageName(env,
+                                              GetStringField(env, managedParams,
+                                                             jni.paramsPackageName));
+    ScopedLocalRef<jstring> paramsClassName(env,
+                                            GetStringField(env, managedParams,
+                                                           jni.paramsClassName));
+    ScopedLocalRef<jstring> paramsArguments(env,
+                                            GetStringField(env, managedParams,
+                                                           jni.paramsArguments));
+    ScopedUtfChars package(env, paramsPackageName.get());
+    ScopedUtfChars className(env, paramsClassName.get());
+    ScopedUtfChars arguments(env, paramsArguments.get());
+    return DataLoaderParamsPair(android::dataloader::DataLoaderParams(type, package.c_str(),
+                                                                      className.c_str(),
+                                                                      arguments.c_str()));
 }
 
 static void cmdLooperThread() {
@@ -883,23 +886,22 @@ DataLoaderInstallationFilesPair DataLoaderInstallationFilesPair::createFromManag
     files.reserve(size);
 
     for (int i = 0; i < size; ++i) {
-        jobject jfile = env->GetObjectArrayElement(jfiles, i);
+        ScopedLocalRef<jobject> jfile(env, env->GetObjectArrayElement(jfiles, i));
 
         DataLoaderLocation location =
-                (DataLoaderLocation)env->GetIntField(jfile, jni.installationFileLocation);
-        std::string name =
-                env->GetStringUTFChars((jstring)env->GetObjectField(jfile,
-                                                                    jni.installationFileName),
-                                       nullptr);
-        IncFsSize size = env->GetLongField(jfile, jni.installationFileLengthBytes);
+                (DataLoaderLocation)env->GetIntField(jfile.get(), jni.installationFileLocation);
+        ScopedUtfChars name(env, GetStringField(env, jfile.get(), jni.installationFileName));
+        IncFsSize size = env->GetLongField(jfile.get(), jni.installationFileLengthBytes);
 
-        auto jmetadataBytes = (jbyteArray)env->GetObjectField(jfile, jni.installationFileMetadata);
-        auto metadataElements = env->GetByteArrayElements(jmetadataBytes, nullptr);
-        auto metadataLength = env->GetArrayLength(jmetadataBytes);
+        ScopedLocalRef<jbyteArray> jmetadataBytes(env,
+                                                  GetByteArrayField(env, jfile.get(),
+                                                                    jni.installationFileMetadata));
+        auto metadataElements = env->GetByteArrayElements(jmetadataBytes.get(), nullptr);
+        auto metadataLength = env->GetArrayLength(jmetadataBytes.get());
         RawMetadata metadata(metadataElements, metadataElements + metadataLength);
-        env->ReleaseByteArrayElements(jmetadataBytes, metadataElements, 0);
+        env->ReleaseByteArrayElements(jmetadataBytes.get(), metadataElements, 0);
 
-        files.emplace_back(location, std::move(name), size, std::move(metadata));
+        files.emplace_back(location, name.c_str(), size, std::move(metadata));
     }
 
     return DataLoaderInstallationFilesPair(std::move(files));
