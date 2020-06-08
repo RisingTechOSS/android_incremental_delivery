@@ -357,7 +357,7 @@ static IncFsFileId toFileIdImpl(std::string_view str) {
     IncFsFileId res;
     auto out = (char*)&res;
     for (auto it = str.begin(); it != str.end(); it += 2, ++out) {
-        static const auto fromChar = [](char src) -> char {
+        static const auto fromChar = [](char src) -> int {
             if (src >= '0' && src <= '9') {
                 return src - '0';
             }
@@ -367,7 +367,7 @@ static IncFsFileId toFileIdImpl(std::string_view str) {
             return -1;
         };
 
-        const char c[2] = {fromChar(it[0]), fromChar(it[1])};
+        const int c[2] = {fromChar(it[0]), fromChar(it[1])};
         if (c[0] == -1 || c[1] == -1) {
             errno = EINVAL;
             return kIncFsInvalidFileId;
