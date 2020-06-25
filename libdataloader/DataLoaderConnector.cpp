@@ -16,7 +16,7 @@
 #define LOG_TAG "incfs-dataloaderconnector"
 
 #include <android-base/logging.h>
-#include <nativehelper/JNIHelp.h>
+#include <nativehelper/JNIPlatformHelp.h>
 #include <nativehelper/scoped_local_ref.h>
 #include <nativehelper/scoped_utf_chars.h>
 #include <sys/stat.h>
