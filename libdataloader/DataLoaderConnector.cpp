@@ -463,7 +463,7 @@ public:
     }
 
     const UniqueControl& control() const { return mControl; }
-    jobject listener() const { return mListener; }
+    jobject getListenerLocalRef(JNIEnv* env) const { return env->NewLocalRef(mListener); }
 
 private:
     JavaVM* const mJvm;
@@ -731,7 +731,7 @@ bool DataLoaderService_OnStart(JNIEnv* env, jint storageId) {
             return false;
         }
 
-        listener = env->NewLocalRef(dlIt->second->listener());
+        listener = dlIt->second->getListenerLocalRef(env);
 
         dataLoaderConnector = dlIt->second;
         if (!dataLoaderConnector->onStart()) {
@@ -802,7 +802,7 @@ jobject DataLoaderService_OnStop_NoStatus(JNIEnv* env, jint storageId) {
             return nullptr;
         }
 
-        listener = env->NewLocalRef(dlIt->second->listener());
+        listener = dlIt->second->getListenerLocalRef(env);
 
         auto&& dataLoaderConnector = dlIt->second;
         dataLoaderConnector->onStop();
@@ -922,7 +922,7 @@ bool DataLoaderService_OnPrepareImage(JNIEnv* env, jint storageId, jobjectArray 
             ALOGE("Failed to handle onPrepareImage for id(%d): not found", storageId);
             return false;
         }
-        listener = dlIt->second->listener();
+        listener = dlIt->second->getListenerLocalRef(env);
         dataLoaderConnector = dlIt->second;
     }
 
