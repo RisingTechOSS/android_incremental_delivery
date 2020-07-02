@@ -48,6 +48,7 @@ struct JniIds {
         jint DATA_LOADER_STOPPED;
         jint DATA_LOADER_IMAGE_READY;
         jint DATA_LOADER_IMAGE_NOT_READY;
+        jint DATA_LOADER_UNAVAILABLE;
         jint DATA_LOADER_UNRECOVERABLE;
 
         jint DATA_LOADER_TYPE_NONE;
@@ -107,6 +108,8 @@ struct JniIds {
         constants.DATA_LOADER_IMAGE_NOT_READY =
                 GetStaticIntFieldValueOrDie(env, listener, "DATA_LOADER_IMAGE_NOT_READY");
 
+        constants.DATA_LOADER_UNAVAILABLE =
+                GetStaticIntFieldValueOrDie(env, listener, "DATA_LOADER_UNAVAILABLE");
         constants.DATA_LOADER_UNRECOVERABLE =
                 GetStaticIntFieldValueOrDie(env, listener, "DATA_LOADER_UNRECOVERABLE");
 
@@ -674,6 +677,14 @@ bool DataLoaderService_OnCreate(JNIEnv* env, jobject service, jint storageId, jo
     auto serviceConnector = createServiceConnector(env, control);
     auto callbackControl = createCallbackControl(env, control);
 
+    auto reportUnavailable = [env, storageId](jobject listener) {
+        const auto& jni = jniIds(env);
+        reportStatusViaCallback(env, listener, storageId, jni.constants.DATA_LOADER_UNAVAILABLE);
+    };
+    // By default, it's disabled. Need to assign listener to enable.
+    std::unique_ptr<_jobject, decltype(reportUnavailable)>
+            reportUnavailableOnExit(nullptr, reportUnavailable);
+
     auto dataLoaderConnector =
             std::make_unique<DataLoaderConnector>(env, service, storageId, std::move(nativeControl),
                                                   serviceConnector, callbackControl, listener);
@@ -688,6 +699,8 @@ bool DataLoaderService_OnCreate(JNIEnv* env, jobject service, jint storageId, jo
         }
         if (!dlIt->second->onCreate(nativeParams, params)) {
             globals().dataLoaderConnectors.erase(dlIt);
+            // Enable the reporter.
+            reportUnavailableOnExit.reset(listener);
             return false;
         }
     }
@@ -699,6 +712,14 @@ bool DataLoaderService_OnCreate(JNIEnv* env, jobject service, jint storageId, jo
 }
 
 bool DataLoaderService_OnStart(JNIEnv* env, jint storageId) {
+    auto reportUnavailable = [env, storageId](jobject listener) {
+        const auto& jni = jniIds(env);
+        reportStatusViaCallback(env, listener, storageId, jni.constants.DATA_LOADER_UNAVAILABLE);
+    };
+    // By default, it's disabled. Need to assign listener to enable.
+    std::unique_ptr<_jobject, decltype(reportUnavailable)>
+            reportUnavailableOnExit(nullptr, reportUnavailable);
+
     const UniqueControl* control;
     jobject listener;
     DataLoaderConnectorPtr dataLoaderConnector;
@@ -710,11 +731,12 @@ bool DataLoaderService_OnStart(JNIEnv* env, jint storageId) {
             return false;
         }
 
-        listener = dlIt->second->listener();
+        listener = env->NewLocalRef(dlIt->second->listener());
 
         dataLoaderConnector = dlIt->second;
         if (!dataLoaderConnector->onStart()) {
             ALOGE("Failed to start id(%d): onStart returned false", storageId);
+            reportUnavailableOnExit.reset(listener);
             return false;
         }
 
