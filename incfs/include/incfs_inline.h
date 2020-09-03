@@ -70,6 +70,10 @@ inline Features features() {
     return Features(IncFs_Features());
 }
 
+inline bool isIncFsFd(int fd) {
+    return IncFs_IsIncFsFd(fd);
+}
+
 inline bool isIncFsPath(std::string_view path) {
     return IncFs_IsIncFsPath(details::c_str(path));
 }

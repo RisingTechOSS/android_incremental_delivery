@@ -140,6 +140,7 @@ typedef struct {
 bool IncFs_IsEnabled();
 IncFsFeatures IncFs_Features();
 
+bool IncFs_IsIncFsFd(int fd);
 bool IncFs_IsIncFsPath(const char* path);
 
 static inline bool IncFs_IsValidFileId(IncFsFileId fileId) {
