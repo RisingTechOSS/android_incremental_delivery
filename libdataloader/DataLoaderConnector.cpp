@@ -16,10 +16,10 @@
 #define LOG_TAG "incfs-dataloaderconnector"
 
 #include <android-base/logging.h>
+#include <fcntl.h>
 #include <nativehelper/JNIPlatformHelp.h>
 #include <nativehelper/scoped_local_ref.h>
 #include <nativehelper/scoped_utf_chars.h>
-#include <fcntl.h>
 #include <sys/stat.h>
 #include <utils/Looper.h>
 
