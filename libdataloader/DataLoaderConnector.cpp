@@ -33,8 +33,9 @@
 
 namespace {
 
-using namespace android::dataloader;
 using namespace std::literals;
+
+using ReadInfo = android::dataloader::ReadInfo;
 
 using FileId = android::incfs::FileId;
 using RawMetadata = android::incfs::RawMetadata;
@@ -231,8 +232,10 @@ using DataLoaderConnectorsMap = std::unordered_map<int, DataLoaderConnectorPtr>;
 
 struct Globals {
     Globals() {
-        managedDataLoaderFactory = new details::DataLoaderFactoryImpl(
-                [](auto jvm, auto) { return std::make_unique<ManagedDataLoader>(jvm); });
+        managedDataLoaderFactory =
+                new android::dataloader::details::DataLoaderFactoryImpl([](auto jvm, auto) {
+                    return std::make_unique<android::dataloader::ManagedDataLoader>(jvm);
+                });
     }
 
     DataLoaderFactory* managedDataLoaderFactory = nullptr;
@@ -286,7 +289,8 @@ private:
 
 static constexpr auto kPendingReadsBufferSize = 256;
 
-class DataLoaderConnector : public FilesystemConnector, public StatusListener {
+class DataLoaderConnector : public android::dataloader::FilesystemConnector,
+                            public android::dataloader::StatusListener {
 public:
     DataLoaderConnector(JNIEnv* env, jobject service, jint storageId, UniqueControl control,
                         jobject serviceConnector, jobject callbackControl, jobject listener)
@@ -365,7 +369,7 @@ public:
         checkAndClearJavaException(__func__);
     }
 
-    bool onPrepareImage(const DataLoaderInstallationFiles& addedFiles) {
+    bool onPrepareImage(const android::dataloader::DataLoaderInstallationFiles& addedFiles) {
         CHECK(mDataLoader);
         bool result =
                 mDataLoader->onPrepareImage(mDataLoader, addedFiles.data(), addedFiles.size());
@@ -416,7 +420,7 @@ public:
         return android::incfs::openForSpecialOps(mControl, fid);
     }
 
-    int writeBlocks(Span<const IncFsDataBlock> blocks) const {
+    int writeBlocks(android::dataloader::Span<const IncFsDataBlock> blocks) const {
         return android::incfs::writeBlocks(blocks);
     }
 
