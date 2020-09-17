@@ -227,6 +227,16 @@ bool IncFs_IsEnabled() {
     return init().enabled();
 }
 
+bool isIncFsFd(int fd) {
+    struct statfs fs = {};
+    if (::fstatfs(fd, &fs) != 0) {
+        PLOG(WARNING) << __func__ << "(): could not fstatfs fd " << fd;
+        return false;
+    }
+
+    return fs.f_type == (decltype(fs.f_type))INCFS_MAGIC_NUMBER;
+}
+
 bool isIncFsPath(const char* path) {
     struct statfs fs = {};
     if (::statfs(path, &fs) != 0) {
@@ -1188,6 +1198,10 @@ IncFsErrorCode IncFs_Unmount(const char* dir) {
     }
     PLOG(WARNING) << __func__ << ": umount(detach) returned non-zero for '" << dir << '\'';
     return 0;
+}
+
+bool IncFs_IsIncFsFd(int fd) {
+    return isIncFsFd(fd);
 }
 
 bool IncFs_IsIncFsPath(const char* path) {
