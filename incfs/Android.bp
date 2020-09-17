@@ -1,13 +1,48 @@
+// Copyright (C) 2020 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 cc_defaults {
-    name: "libincfs_defaults",
+    name: "libincfs_defaults_common",
     cpp_std: "c++2a",
     cflags: ["-Werror", "-Wall", "-Wextra"],
-    defaults: ["linux_bionic_supported"],
-    export_include_dirs: ["include/", "kernel-headers",],
-    local_include_dirs: ["include/"],
-    header_libs: [
-        "libincfs_headers",
+    tidy: true,
+    tidy_checks: [
+        "android-*",
+        "cert-*",
+        "clang-analyzer-security*",
+        "-cert-err34-c",
+        "clang-analyzer-security*",
+        // Disabling due to many unavoidable warnings from POSIX API usage.
+        "-google-runtime-int",
+        "-google-explicit-constructor",
+        // operator=() does not handle self-assignment properly - all protobuf-generated classes
+        "-cert-oop54-cpp",
     ],
+    target: {
+        linux_bionic: {
+            enabled: true,
+        },
+    },
+}
+
+cc_defaults {
+    name: "libincfs_defaults",
+    defaults: [
+        "libincfs_defaults_common",
+        "linux_bionic_supported",
+    ],
+    header_libs: ["libincfs_headers"],
     export_header_lib_headers: ["libincfs_headers"],
     static_libs: [
         "libbase",
@@ -23,23 +58,7 @@ cc_defaults {
                 "com.android.sysprop.incremental",
             ],
         },
-        linux_bionic: {
-            enabled: true,
-        }
     },
-    tidy: true,
-    tidy_checks: [
-        "android-*",
-        "cert-*",
-        "clang-analyzer-security*",
-        "-cert-err34-c",
-        "clang-analyzer-security*",
-        // Disabling due to many unavoidable warnings from POSIX API usage.
-        "-google-runtime-int",
-        "-google-explicit-constructor",
-        // operator=() does not handle self-assignment properly - all protobuf-generated classes
-        "-cert-oop54-cpp",
-    ],
 }
 
 cc_library {
@@ -51,6 +70,36 @@ cc_library {
         "MountRegistry.cpp",
         "path.cpp",
     ],
+}
+
+cc_library_static {
+    name: "libincfs-utils",
+    defaults: ["libincfs_defaults_common"],
+    local_include_dirs: ["util/include"],
+    export_include_dirs: ["util/include"],
+    host_supported: true,
+    srcs: [
+        "util/map_ptr.cpp",
+    ],
+    target: {
+        android: {
+            header_libs: ["libincfs_headers"],
+            shared_libs: [
+                "libbase",
+                "libincfs",
+                "libutils",
+            ],
+        },
+        host: {
+            static_libs: [
+                "libbase",
+                "libutils",
+            ],
+        },
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
 cc_library_headers {
@@ -67,13 +116,17 @@ cc_library_headers {
 cc_test {
     name: "libincfs-test",
     defaults: ["libincfs_defaults"],
+    local_include_dirs: ["tests/include"],
     static_libs: [
         "libincfs",
+        "libincfs-utils",
     ],
     shared_libs: [
         "libbase",
+        "libutils",
     ],
     srcs: [
+        "tests/util/map_ptr_test.cpp",
         "tests/incfs_test.cpp",
         "tests/MountRegistry_test.cpp",
     ],
