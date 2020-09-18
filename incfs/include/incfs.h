@@ -191,6 +191,7 @@ Features features();
 bool isValidFileId(FileId fileId);
 std::string toString(FileId fileId);
 IncFsFileId toFileId(std::string_view str);
+bool isIncFsFd(int fd);
 bool isIncFsPath(std::string_view path);
 
 UniqueControl mount(std::string_view backingPath, std::string_view targetDir,
