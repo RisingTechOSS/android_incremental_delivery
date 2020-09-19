@@ -14,27 +14,18 @@
  * limitations under the License.
  */
 
-#include "incfs.h"
-
 #include <android-base/file.h>
-#include <android-base/logging.h>
-#include <android-base/unique_fd.h>
-#include <gtest/gtest.h>
-#include <selinux/selinux.h>
 #include <sys/select.h>
+
 #include <unistd.h>
 
 #include <optional>
 #include <thread>
 
-#include "path.h"
+#include "IncFsTestBase.h"
 
 using namespace android::incfs;
 using namespace std::literals;
-
-static bool exists(std::string_view path) {
-    return access(path.data(), F_OK) == 0;
-}
 
 struct ScopedUnmount {
     std::string path_;
@@ -42,58 +33,10 @@ struct ScopedUnmount {
     ~ScopedUnmount() { unmount(path_); }
 };
 
-class IncFsTest : public ::testing::Test {
+class IncFsTest : public IncFsTestBase {
 protected:
-    virtual void SetUp() {
-        tmp_dir_for_mount_.emplace();
-        mount_dir_path_ = tmp_dir_for_mount_->path;
-        tmp_dir_for_image_.emplace();
-        image_dir_path_ = tmp_dir_for_image_->path;
-        ASSERT_TRUE(exists(image_dir_path_));
-        ASSERT_TRUE(exists(mount_dir_path_));
-        if (!enabled()) {
-            GTEST_SKIP() << "test not supported: IncFS is not enabled";
-        } else {
-            control_ =
-                    mount(image_dir_path_, mount_dir_path_,
-                          MountOptions{.readLogBufferPages = 4,
-                                       .defaultReadTimeoutMs = std::chrono::duration_cast<
-                                                                       std::chrono::milliseconds>(
-                                                                       kDefaultReadTimeout)
-                                                                       .count()});
-            ASSERT_TRUE(control_.cmd() >= 0) << "Expected >= 0 got " << control_.cmd();
-            ASSERT_TRUE(control_.pendingReads() >= 0);
-            ASSERT_TRUE(control_.logs() >= 0);
-            checkRestoreconResult(mountPath(INCFS_PENDING_READS_FILENAME));
-            checkRestoreconResult(mountPath(INCFS_LOG_FILENAME));
-        }
-    }
-
-    static void checkRestoreconResult(std::string_view path) {
-        char* ctx = nullptr;
-        ASSERT_NE(-1, getfilecon(path.data(), &ctx));
-        ASSERT_EQ("u:object_r:shell_data_file:s0", std::string(ctx));
-        freecon(ctx);
-    }
-
-    virtual void TearDown() {
-        unmount(mount_dir_path_);
-        tmp_dir_for_image_.reset();
-        tmp_dir_for_mount_.reset();
-        EXPECT_FALSE(exists(image_dir_path_));
-        EXPECT_FALSE(exists(mount_dir_path_));
-    }
-
-    template <class... Paths>
-    std::string mountPath(Paths&&... paths) const {
-        return path::join(mount_dir_path_, std::forward<Paths>(paths)...);
-    }
-
-    static IncFsFileId fileId(uint64_t i) {
-        IncFsFileId id = {};
-        static_assert(sizeof(id) >= sizeof(i));
-        memcpy(&id, &i, sizeof(i));
-        return id;
+    virtual int32_t getReadTimeout() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(kDefaultReadTimeout).count();
     }
 
     static IncFsSpan metadata(std::string_view sv) {
@@ -186,14 +129,7 @@ protected:
         ASSERT_EQ((int)std::size(blocks), writeBlocks({blocks, std::size(blocks)}));
     }
 
-    std::string mount_dir_path_;
-    std::optional<TemporaryDir> tmp_dir_for_mount_;
-    std::string image_dir_path_;
-    std::optional<TemporaryDir> tmp_dir_for_image_;
-    inline static const std::string_view test_file_name_ = "test.txt"sv;
-    inline static const std::string_view test_dir_name_ = "test_dir"sv;
     inline static const int test_file_size_ = INCFS_DATA_FILE_BLOCK_SIZE;
-    Control control_;
 };
 
 TEST_F(IncFsTest, GetIncfsFeatures) {
@@ -215,6 +151,23 @@ TEST_F(IncFsTest, TrueIncfsPathForBindMount) {
     ASSERT_EQ(0, bindMount(mountPath(test_dir_name_), tmp_dir_to_bind.path));
     ScopedUnmount su(tmp_dir_to_bind.path);
     ASSERT_TRUE(isIncFsPath(tmp_dir_to_bind.path));
+}
+
+TEST_F(IncFsTest, FalseIncfsPathFile) {
+    TemporaryFile test_file;
+    ASSERT_FALSE(isIncFsFd(test_file.fd));
+    ASSERT_FALSE(isIncFsPath(test_file.path));
+}
+
+TEST_F(IncFsTest, TrueIncfsPathForBindMountFile) {
+    ASSERT_EQ(0,
+              makeFile(control_, mountPath(test_file_name_), 0555, fileId(1),
+                       {.size = test_file_size_}));
+    const auto file_path = mountPath(test_file_name_);
+    const android::base::unique_fd fd(open(file_path.c_str(), O_RDONLY | O_CLOEXEC | O_BINARY));
+    ASSERT_GE(fd.get(), 0);
+    ASSERT_TRUE(isIncFsFd(fd.get()));
+    ASSERT_TRUE(isIncFsPath(file_path));
 }
 
 TEST_F(IncFsTest, Control) {
