@@ -568,14 +568,14 @@ DataLoaderParamsPair DataLoaderParamsPair::createFromManaged(JNIEnv* env, jobjec
 }
 
 static void pendingReadsLooperThread() {
-    constexpr auto kTimeoutMsecs = 60 * 1000;
+    constexpr auto kTimeoutMsecs = -1;
     while (!globals().stopped) {
         pendingReadsLooper().pollAll(kTimeoutMsecs);
     }
 }
 
 static void logLooperThread() {
-    constexpr auto kTimeoutMsecs = 60 * 1000;
+    constexpr auto kTimeoutMsecs = -1;
     while (!globals().stopped) {
         logLooper().pollAll(kTimeoutMsecs);
     }
