@@ -76,8 +76,8 @@ protected:
 
     int32_t getReadTimeout() override { return 1; }
 
-    std::unique_ptr<IncFsFileMap> GetFileMap(off64_t offset, size_t length) {
-        auto map = std::make_unique<IncFsFileMap>();
+    std::unique_ptr<util::IncFsFileMap> GetFileMap(off64_t offset, size_t length) {
+        auto map = std::make_unique<util::IncFsFileMap>();
         return map->Create(fd_, offset, length, nullptr) ? std::move(map) : nullptr;
     }
 
@@ -102,22 +102,6 @@ TEST_F(MapPtrTest, ReadAtStart) {
     ASSERT_TRUE(p2);
     ASSERT_EQ(0U, p2->first);
     ASSERT_EQ(1U, p2->second);
-}
-
-TEST_F(MapPtrTest, ReadNull) {
-    auto map = GetFileMap(0U /* offset */, FILE_SIZE);
-    ASSERT_NE(nullptr, map);
-
-    auto p1 = map->data<uint32_t>();
-    ASSERT_TRUE(p1);
-    ASSERT_EQ(0U, p1.value());
-
-    p1 = nullptr;
-    ASSERT_FALSE(p1);
-
-    p1 = map->data<uint32_t>();
-    ASSERT_TRUE(p1);
-    ASSERT_EQ(0U, p1.value());
 }
 
 TEST_F(MapPtrTest, ReadAtStartWithOffset) {
@@ -199,7 +183,7 @@ TEST_F(MapPtrTest, PointerOffset) {
     auto map = GetFileMap(0U /* offset */, FILE_SIZE);
     ASSERT_NE(nullptr, map);
 
-    auto p1 = map->data().offset(11U * sizeof(uint32_t)).convert<TwoValues>();
+    auto p1 = map->data().offset<TwoValues>(11U * sizeof(uint32_t));
     ASSERT_TRUE(p1);
     ASSERT_EQ(11U, p1->first);
     ASSERT_EQ(12U, p1->second);
@@ -261,7 +245,7 @@ TEST_F(MapPtrTest, VerifyMissingPageFails) {
         ASSERT_NE(nullptr, map);
 
         auto missing_page_start = INCFS_DATA_FILE_BLOCK_SIZE * FILE_MISSING_PAGE;
-        auto p1 = map->data().offset(missing_page_start - off).convert<uint32_t>();
+        auto p1 = map->data().offset<uint32_t>(missing_page_start - off);
         ASSERT_FALSE(p1);
         ASSERT_SIGBUS(p1.value());
 
@@ -297,7 +281,7 @@ TEST_F(MapPtrTest, VerifyMissingPageFails) {
         ASSERT_SIGBUS(p6.value());
 
         auto missing_page_end = INCFS_DATA_FILE_BLOCK_SIZE * (FILE_MISSING_PAGE + 1);
-        auto p8 = map->data().offset(missing_page_end - off).convert<uint32_t>();
+        auto p8 = map->data().offset<uint32_t>(missing_page_end - off);
         ASSERT_TRUE(p8);
         ASSERT_EQ(4096U, p8.value());
 
