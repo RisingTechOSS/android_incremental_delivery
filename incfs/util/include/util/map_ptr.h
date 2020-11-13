@@ -21,6 +21,7 @@
 #include <vector>
 
 #include <android-base/logging.h>
+#include <android-base/off64_t.h>
 
 #ifdef __ANDROID__
 #include <linux/incrementalfs.h>
