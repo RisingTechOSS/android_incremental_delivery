@@ -24,11 +24,9 @@
 
 #include "util/map_ptr.h"
 
-namespace android::incfs {
+namespace android::incfs::util {
 
 IncFsFileMap::IncFsFileMap() = default;
-IncFsFileMap::IncFsFileMap(IncFsFileMap&&) noexcept = default;
-IncFsFileMap& IncFsFileMap::operator =(IncFsFileMap&&) noexcept = default;
 IncFsFileMap::~IncFsFileMap() = default;
 
 const void* IncFsFileMap::unsafe_data() const {
@@ -98,7 +96,7 @@ bool IncFsFileMap::Verify(const uint8_t* const& data_start, const uint8_t* const
     // safely.
     for (data_block_index_t curr_index = start_index; curr_index <= end_index; ++curr_index) {
         const size_t i = curr_index / kBucketBits;
-        const bucket_t present_bit = 1U << (curr_index % kBucketBits);
+        const auto present_bit = 1U << (curr_index % kBucketBits);
         std::atomic<bucket_t>& bucket = loaded_blocks_[i];
         if (LIKELY(bucket.load(std::memory_order_relaxed) & present_bit)) {
             continue;
@@ -107,7 +105,7 @@ bool IncFsFileMap::Verify(const uint8_t* const& data_start, const uint8_t* const
         // Touch all of the blocks with pread to ensure that the region of data is fully present.
         uint8_t value;
         const off64_t read_offset = (curr_index * INCFS_DATA_FILE_BLOCK_SIZE) + start_block_offset_;
-        if (UNLIKELY(TEMP_FAILURE_RETRY(pread64(fd_, &value, 1U, read_offset)) <= 0)) {
+        if (UNLIKELY(!android::base::ReadFullyAtOffset(fd_, &value, 1U, read_offset))) {
             success = false;
             break;
         }
@@ -134,4 +132,4 @@ bool IncFsFileMap::Verify(const uint8_t* const& data_start, const uint8_t* const
 }
 #endif
 
-} // namespace android::incfs
+} // namespace android::incfs::util
