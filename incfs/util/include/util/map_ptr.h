@@ -31,16 +31,7 @@ namespace android {
 
 class FileMap;
 
-namespace incfs {
-
-// Controls whether not verifying the presence of data before de-referencing the pointer aborts
-// program execution.
-#define LIBINCFS_MAP_PTR_DEBUG false
-#if LIBINCFS_MAP_PTR_DEBUG
-#define LIBINCFS_MAP_PTR_DEBUG_CODE(x) x
-#else
-#define LIBINCFS_MAP_PTR_DEBUG_CODE(x)
-#endif
+namespace incfs::util {
 
 template <typename T, bool Verified = false>
 struct map_ptr;
@@ -53,15 +44,18 @@ struct map_ptr;
 //
 // This always uses MAP_SHARED.
 class IncFsFileMap final {
+    // Controls whether not verifying the presence of data before de-referencing the pointer aborts
+    // program execution.
+    static constexpr bool DEBUG = false;
+
     template <typename, bool>
     friend struct map_ptr;
+
     using bucket_t = uint8_t;
     static constexpr size_t kBucketBits = sizeof(bucket_t) * 8U;
 
 public:
     IncFsFileMap();
-    IncFsFileMap(IncFsFileMap&&) noexcept;
-    IncFsFileMap& operator =(IncFsFileMap&&) noexcept;
     ~IncFsFileMap();
 
     // Initializes the map. Does not take ownership of the file descriptor.
@@ -80,8 +74,6 @@ public:
     const char* file_name() const;
 
 private:
-    DISALLOW_COPY_AND_ASSIGN(IncFsFileMap);
-
     // Returns whether pointers created from this map should run verification of data presence
     // to protect against SIGBUS signals.
     bool IsVerificationEnabled() const;
@@ -95,7 +87,7 @@ private:
     // File descriptor of the memory-mapped file (not owned).
     int fd_ = -1;
     size_t start_block_offset_ = 0;
-    const uint8_t* start_block_ptr_ = nullptr;
+    const uint8_t* start_block_ptr_ = 0;
 
     std::unique_ptr<android::FileMap> map_;
 
@@ -157,12 +149,6 @@ public:
             return safe_ptr_ - other.safe_ptr_;
         }
 
-        const_iterator operator+(int n) const {
-            const_iterator other = *this;
-            other += n;
-            return other;
-        }
-
         reference operator*() const { return safe_ptr_; }
 
         const const_iterator& operator++() {
@@ -214,10 +200,10 @@ public:
 
     // Implicit conversion from regular raw pointer
     map_ptr& operator=(const T* ptr) {
-        ptr_ = ptr;
         map_ = nullptr;
+        ptr_ = ptr;
         verified_block_ = nullptr;
-        LIBINCFS_MAP_PTR_DEBUG_CODE(verified_ = Verified);
+        verified_ = Verified;
         return *this;
     }
 
@@ -227,10 +213,10 @@ public:
     // Copy assignment operator
     template <bool V2, bool V1 = Verified, IsUnverified<V1> = 0, IsVerified<V2> = 0>
     map_ptr& operator=(const map_ptr<T, V2>& other) {
-        ptr_ = other.ptr_;
         map_ = other.map_;
+        ptr_ = other.ptr_;
         verified_block_ = other.verified_block_;
-        LIBINCFS_MAP_PTR_DEBUG_CODE(verified_ = other.verified_);
+        verified_ = other.verified_;
         return *this;
     }
 
@@ -261,15 +247,16 @@ public:
 
     // Retrieves a map_ptr<T> offset from an original map_ptr<U> by the specified number of `offset`
     // bytes.
-    map_ptr<T> offset(std::ptrdiff_t offset) const {
-        return map_ptr<T>(map_,
-                          reinterpret_cast<const T*>(reinterpret_cast<const uint8_t*>(ptr_) +
+    template <typename U>
+    map_ptr<U> offset(std::ptrdiff_t offset) const {
+        return map_ptr<U>(map_,
+                          reinterpret_cast<const U*>(reinterpret_cast<const uint8_t*>(ptr_) +
                                                      offset),
                           verified_block_);
     }
 
     // Returns a raw pointer to the value of this pointer.
-    const T* unsafe_ptr() const { return ptr_; }
+    const T* unsafe() const { return ptr_; }
 
     // Start T == void methods
 
@@ -281,24 +268,19 @@ public:
     // End T == void methods
     // Start T != void methods
 
-    template <typename T1 = T, NotVoid<T1> = 0, bool V1 = Verified, IsUnverified<V1> = 0>
-    operator bool() const {
-        return verify();
-    }
-
-    template <typename T1 = T, NotVoid<T1> = 0, bool V1 = Verified, IsVerified<V1> = 0>
-    operator bool() const {
-        return ptr_ != nullptr;
-    }
-
     template <typename T1 = T, NotVoid<T1> = 0>
     const_iterator iterator() const {
         return const_iterator(*this);
     }
 
     template <typename T1 = T, NotVoid<T1> = 0>
+    operator bool() const {
+        return Verified ? ptr_ != nullptr : verify() != nullptr;
+    }
+
+    template <typename T1 = T, NotVoid<T1> = 0>
     const map_ptr<T1>& operator++() {
-        LIBINCFS_MAP_PTR_DEBUG_CODE(verified_ = false);
+        verified_ = false;
         ++ptr_;
         return *this;
     }
@@ -306,7 +288,7 @@ public:
     template <typename T1 = T, NotVoid<T1> = 0>
     const map_ptr<T1> operator++(int) {
         map_ptr<T1> temp = *this;
-        LIBINCFS_MAP_PTR_DEBUG_CODE(verified_ = false);
+        verified_ = false;
         ++ptr_;
         return temp;
     }
@@ -325,56 +307,53 @@ public:
     // The caller should verify the presence of the pointer data before calling this method.
     template <typename T1 = T, NotVoid<T1> = 0>
     const T1& value() const {
-        LIBINCFS_MAP_PTR_DEBUG_CODE(
-                CHECK(verified_) << "Did not verify presence before de-referencing safe pointer");
+        CHECK(!IncFsFileMap::DEBUG || verified_)
+                << "Did not verify presence before de-referencing safe pointer";
         return *ptr_;
     }
 
     // Returns a raw pointer to the value this pointer.
     // The caller should verify the presence of the pointer data before calling this method.
     template <typename T1 = T, NotVoid<T1> = 0>
-    const T1* operator->() const {
-        LIBINCFS_MAP_PTR_DEBUG_CODE(
-                CHECK(verified_) << "Did not verify presence before de-referencing safe pointer");
+    const T1* const& operator->() const {
+        CHECK(!IncFsFileMap::DEBUG || verified_)
+                << "Did not verify presence before de-referencing safe pointer";
         return ptr_;
     }
 
     // Verifies the presence of `n` elements of `T`.
     //
-    // Returns true if the elements are completely present; otherwise, returns false.
-    template <typename T1 = T, NotVoid<T1> = 0, bool V1 = Verified, IsUnverified<V1> = 0>
-    bool verify(size_t n = 1) const {
+    // Returns a raw pointer to the value of this pointer if the elements are completely present;
+    // otherwise, returns
+    // nullptr.
+    template <typename N = int, typename T1 = T, NotVoid<T1> = 0>
+    const T1* verify(N n = 1) const {
+        verified_ = true;
+
 #ifdef __ANDROID__
-        if (LIKELY(map_ == nullptr)) {
-            return ptr_ != nullptr;
+        if (!map_) {
+            return ptr_;
         }
-
-        if (ptr_ == nullptr) {
-            return false;
-        }
-
-        const size_t verify_size = sizeof(T) * n;
-        LIBINCFS_MAP_PTR_DEBUG_CODE(if (sizeof(T) <= verify_size) verified_ = true;);
 
         const auto data_start = reinterpret_cast<const uint8_t*>(ptr_);
-        const auto data_end = reinterpret_cast<const uint8_t*>(ptr_) + verify_size;
+        const auto data_end = reinterpret_cast<const uint8_t*>(ptr_ + n);
 
         // If the data is entirely within the block beginning at the previous verified block
         // pointer, then the data can safely be used.
         if (LIKELY(data_start >= verified_block_ &&
                    data_end <= verified_block_ + INCFS_DATA_FILE_BLOCK_SIZE)) {
-            return true;
+            return ptr_;
         }
 
         if (LIKELY(map_->Verify(data_start, data_end, &verified_block_))) {
-            return true;
+            return ptr_;
         }
 
-        LIBINCFS_MAP_PTR_DEBUG_CODE(verified_ = false);
-        return false;
+        verified_ = false;
+        return nullptr;
 #else
         (void)n;
-        return true;
+        return ptr_;
 #endif
     }
 
@@ -382,9 +361,12 @@ public:
     // The caller should verify the presence of the pointer data before calling this method.
     template <typename T1 = T, NotVoid<T1> = 0>
     verified_map_ptr<T1> verified() const {
+        CHECK(!IncFsFileMap::DEBUG || verified_)
+                << "Did not verify presence before de-referencing safe pointer";
         return verified_map_ptr<T1>(map_, ptr_, verified_block_);
     }
 
+    // End T != void type methods
 private:
     map_ptr(const IncFsFileMap* map, const T* ptr)
           : ptr_(ptr), map_(map), verified_block_(nullptr) {}
@@ -394,9 +376,9 @@ private:
     const T* ptr_ = nullptr;
     mutable const IncFsFileMap* map_ = nullptr;
     mutable const uint8_t* verified_block_;
-    LIBINCFS_MAP_PTR_DEBUG_CODE(mutable bool verified_ = Verified);
+    mutable bool verified_ = Verified;
 };
 
-} // namespace incfs
+} // namespace incfs::util
 
 } // namespace android
