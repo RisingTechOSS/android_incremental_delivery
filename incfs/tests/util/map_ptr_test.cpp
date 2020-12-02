@@ -64,25 +64,22 @@ protected:
             ASSERT_EQ(1, writeBlocks({&block, 1}));
         }
 
-        const auto file_path = mountPath(test_file_name_);
-        fd_ = open(file_path.c_str(), O_RDONLY | O_CLOEXEC | O_BINARY);
+        mount_path_ = mountPath(test_file_name_);
     }
 
-    void TearDown() override {
-        IncFsTestBase::TearDown();
-        ::close(fd_);
-        fd_ = -1;
+    android::base::unique_fd GetFd() {
+        return android::base::unique_fd(open(mount_path_.c_str(), O_RDONLY | O_CLOEXEC | O_BINARY));
     }
 
     int32_t getReadTimeout() override { return 1; }
 
-    std::unique_ptr<IncFsFileMap> GetFileMap(off64_t offset, size_t length) {
+    std::unique_ptr<IncFsFileMap> GetFileMap(int fd, off64_t offset, size_t length) {
         auto map = std::make_unique<IncFsFileMap>();
-        return map->Create(fd_, offset, length, nullptr) ? std::move(map) : nullptr;
+        return map->Create(fd, offset, length, nullptr) ? std::move(map) : nullptr;
     }
 
 private:
-    int fd_;
+    std::string mount_path_;
 };
 
 struct TwoValues {
@@ -91,7 +88,8 @@ struct TwoValues {
 };
 
 TEST_F(MapPtrTest, ReadAtStart) {
-    auto map = GetFileMap(0U /* offset */, FILE_SIZE);
+    auto fd = GetFd();
+    auto map = GetFileMap(fd.get(), 0U /* offset */, FILE_SIZE);
     ASSERT_NE(nullptr, map);
 
     auto p1 = map->data<uint32_t>();
@@ -105,7 +103,8 @@ TEST_F(MapPtrTest, ReadAtStart) {
 }
 
 TEST_F(MapPtrTest, ReadNull) {
-    auto map = GetFileMap(0U /* offset */, FILE_SIZE);
+    auto fd = GetFd();
+    auto map = GetFileMap(fd.get(), 0U /* offset */, FILE_SIZE);
     ASSERT_NE(nullptr, map);
 
     auto p1 = map->data<uint32_t>();
@@ -121,7 +120,8 @@ TEST_F(MapPtrTest, ReadNull) {
 }
 
 TEST_F(MapPtrTest, ReadAtStartWithOffset) {
-    auto map = GetFileMap(sizeof(uint32_t) * 4U /* offset */, FILE_SIZE);
+    auto fd = GetFd();
+    auto map = GetFileMap(fd.get(), sizeof(uint32_t) * 4U /* offset */, FILE_SIZE);
     ASSERT_NE(nullptr, map);
 
     auto p1 = map->data<uint32_t>();
@@ -135,7 +135,8 @@ TEST_F(MapPtrTest, ReadAtStartWithOffset) {
 }
 
 TEST_F(MapPtrTest, PointerArithmetic) {
-    auto map = GetFileMap(0U /* offset */, FILE_SIZE);
+    auto fd = GetFd();
+    auto map = GetFileMap(fd.get(), 0U /* offset */, FILE_SIZE);
     ASSERT_NE(nullptr, map);
 
     auto p1 = map->data<uint32_t>() + 11U;
@@ -151,7 +152,8 @@ TEST_F(MapPtrTest, PointerArithmetic) {
 }
 
 TEST_F(MapPtrTest, PointerIncrement) {
-    auto map = GetFileMap(0U /* offset */, FILE_SIZE);
+    auto fd = GetFd();
+    auto map = GetFileMap(fd.get(), 0U /* offset */, FILE_SIZE);
     ASSERT_NE(nullptr, map);
 
     auto p1 = map->data<uint32_t>();
@@ -172,7 +174,8 @@ TEST_F(MapPtrTest, PointerIncrement) {
 }
 
 TEST_F(MapPtrTest, PointerComparison) {
-    auto map = GetFileMap(0U /* offset */, FILE_SIZE);
+    auto fd = GetFd();
+    auto map = GetFileMap(fd.get(), 0U /* offset */, FILE_SIZE);
     ASSERT_NE(nullptr, map);
 
     auto p1 = map->data<uint32_t>();
@@ -186,7 +189,8 @@ TEST_F(MapPtrTest, PointerComparison) {
 }
 
 TEST_F(MapPtrTest, PointerConvert) {
-    auto map = GetFileMap(0U /* offset */, FILE_SIZE);
+    auto fd = GetFd();
+    auto map = GetFileMap(fd.get(), 0U /* offset */, FILE_SIZE);
     ASSERT_NE(nullptr, map);
 
     auto p1 = (map->data<uint32_t>() + 11U).convert<TwoValues>();
@@ -196,7 +200,8 @@ TEST_F(MapPtrTest, PointerConvert) {
 }
 
 TEST_F(MapPtrTest, PointerOffset) {
-    auto map = GetFileMap(0U /* offset */, FILE_SIZE);
+    auto fd = GetFd();
+    auto map = GetFileMap(fd.get(), 0U /* offset */, FILE_SIZE);
     ASSERT_NE(nullptr, map);
 
     auto p1 = map->data().offset(11U * sizeof(uint32_t)).convert<TwoValues>();
@@ -206,7 +211,8 @@ TEST_F(MapPtrTest, PointerOffset) {
 }
 
 TEST_F(MapPtrTest, Iterator) {
-    auto map = GetFileMap(0U /* offset */, FILE_SIZE);
+    auto fd = GetFd();
+    auto map = GetFileMap(fd.get(), 0U /* offset */, FILE_SIZE);
     ASSERT_NE(nullptr, map);
 
     auto it = map->data<uint32_t>().iterator();
@@ -257,7 +263,8 @@ TEST_F(MapPtrTest, VerifyMissingPageFails) {
                                INCFS_DATA_FILE_BLOCK_SIZE / 2 + 1, INCFS_DATA_FILE_BLOCK_SIZE,
                                INCFS_DATA_FILE_BLOCK_SIZE * 3 / 2 - 1,
                                INCFS_DATA_FILE_BLOCK_SIZE * 3 / 2 + 1}) {
-        auto map = GetFileMap(off /* offset */, FILE_SIZE);
+        auto fd = GetFd();
+        auto map = GetFileMap(fd.get(), off /* offset */, FILE_SIZE);
         ASSERT_NE(nullptr, map);
 
         auto missing_page_start = INCFS_DATA_FILE_BLOCK_SIZE * FILE_MISSING_PAGE;
@@ -304,4 +311,18 @@ TEST_F(MapPtrTest, VerifyMissingPageFails) {
         ASSERT_FALSE(p8 - 1U);
         ASSERT_SIGBUS((p8 - 1U).value());
     }
+}
+
+TEST_F(MapPtrTest, GetDataAfterClose) {
+    std::unique_ptr<IncFsFileMap> map;
+    {
+        auto fd = GetFd();
+        map = GetFileMap(fd.get(), 0U /* offset */, FILE_SIZE);
+        ASSERT_NE(nullptr, map);
+    }
+
+    auto missing_page_start = INCFS_DATA_FILE_BLOCK_SIZE * FILE_MISSING_PAGE;
+    auto p1 = map->data().offset(missing_page_start).convert<uint32_t>();
+    ASSERT_FALSE(p1);
+    ASSERT_SIGBUS(p1.value());
 }
