@@ -53,11 +53,6 @@ struct map_ptr;
 //
 // This always uses MAP_SHARED.
 class IncFsFileMap final {
-    template <typename, bool>
-    friend struct map_ptr;
-    using bucket_t = uint8_t;
-    static constexpr size_t kBucketBits = sizeof(bucket_t) * 8U;
-
 public:
     IncFsFileMap();
     IncFsFileMap(IncFsFileMap&&) noexcept;
@@ -70,7 +65,7 @@ public:
 
     template <typename T = void>
     map_ptr<T> data() const {
-        return map_ptr<T>(IsVerificationEnabled() ? this : nullptr,
+        return map_ptr<T>(verification_enabled_ ? this : nullptr,
                           reinterpret_cast<const T*>(unsafe_data()));
     }
 
@@ -82,18 +77,18 @@ public:
 private:
     DISALLOW_COPY_AND_ASSIGN(IncFsFileMap);
 
-    // Returns whether pointers created from this map should run verification of data presence
-    // to protect against SIGBUS signals.
-    bool IsVerificationEnabled() const;
-
 #ifdef __ANDROID__
     // Returns whether the data range is entirely present on IncFs.
     bool Verify(const uint8_t* const& data_start, const uint8_t* const& data_end,
                 const uint8_t** prev_verified_block) const;
 #endif
 
+    using bucket_t = uint8_t;
+    static constexpr size_t kBucketBits = sizeof(bucket_t) * 8U;
+
     // File descriptor of the memory-mapped file (not owned).
     int fd_ = -1;
+    bool verification_enabled_ = false;
     size_t start_block_offset_ = 0;
     const uint8_t* start_block_ptr_ = nullptr;
 
@@ -102,6 +97,9 @@ private:
     // Bitwise cache for storing whether a block has already been verified. This cache relies on
     // IncFs not deleting blocks of a file that is currently memory mapped.
     mutable std::vector<std::atomic<bucket_t>> loaded_blocks_;
+
+    template <typename, bool>
+    friend struct map_ptr;
 };
 
 // Variant of map_ptr that statically guarantees that the pointed to data is fully present and
