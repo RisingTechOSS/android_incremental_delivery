@@ -25,7 +25,6 @@
 #include "util/map_ptr.h"
 
 namespace android::incfs {
-
 IncFsFileMap::IncFsFileMap() = default;
 IncFsFileMap::IncFsFileMap(IncFsFileMap&&) noexcept = default;
 IncFsFileMap& IncFsFileMap::operator =(IncFsFileMap&&) noexcept = default;
@@ -47,18 +46,11 @@ const char* IncFsFileMap::file_name() const {
     return map_->getFileName();
 }
 
-#ifndef __ANDROID__
-bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* debug_file_name) {
-    if (fd < 0) return false;
-    map_ = std::make_unique<android::FileMap>();
-    return map_->create(debug_file_name, fd, offset, length, true /* readOnly */);
+#ifdef __ANDROID__
+bool IsVerificationEnabled(int fd) {
+    return isIncFsFd(fd) && isFullyLoaded(fd) != LoadingState::Full;
 }
 
-bool IncFsFileMap::IsVerificationEnabled() const {
-    return false;
-}
-
-#else
 using data_block_index_t = uint32_t;
 
 data_block_index_t get_block_index(const uint8_t* ptr, const uint8_t* start_block_ptr) {
@@ -71,21 +63,20 @@ bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* fil
         return false;
     }
 
-    // Initialize the block cache with enough buckets to hold all of the blocks within the
-    // memory-mapped region.
     fd_ = fd;
-    size_t offset_diff = offset % INCFS_DATA_FILE_BLOCK_SIZE;
-    size_t base_length_ = length + offset_diff;
-    start_block_offset_ = offset - offset_diff;
-    start_block_ptr_ = reinterpret_cast<const uint8_t*>(map_->getDataPtr()) - offset_diff;
+    verification_enabled_ = IsVerificationEnabled(fd);
+    if (verification_enabled_) {
+        // Initialize the block cache with enough buckets to hold all of the blocks within the
+        // memory-mapped region.
+        size_t offset_diff = offset % INCFS_DATA_FILE_BLOCK_SIZE;
+        size_t base_length_ = length + offset_diff;
+        start_block_offset_ = offset - offset_diff;
+        start_block_ptr_ = reinterpret_cast<const uint8_t*>(map_->getDataPtr()) - offset_diff;
 
-    const size_t bucket_count = (base_length_ / INCFS_DATA_FILE_BLOCK_SIZE) / kBucketBits;
-    loaded_blocks_ = std::vector<std::atomic<bucket_t> >(bucket_count + 1U);
+        const size_t bucket_count = (base_length_ / INCFS_DATA_FILE_BLOCK_SIZE) / kBucketBits;
+        loaded_blocks_ = std::vector<std::atomic<bucket_t> >(bucket_count + 1U);
+    }
     return true;
-}
-
-bool IncFsFileMap::IsVerificationEnabled() const {
-    return isIncFsFd(fd_) && isFullyLoaded(fd_) != LoadingState::Full;
 }
 
 bool IncFsFileMap::Verify(const uint8_t* const& data_start, const uint8_t* const& data_end,
@@ -131,6 +122,12 @@ bool IncFsFileMap::Verify(const uint8_t* const& data_start, const uint8_t* const
     // Update the previous verified block pointer to optimize repeated verifies on the same block.
     *prev_verified_block = start_block_ptr_ + (end_index * INCFS_DATA_FILE_BLOCK_SIZE);
     return true;
+}
+
+#else
+bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* file_name) {
+    map_ = std::make_unique<android::FileMap>();
+    return map_->create(file_name, fd, offset, length, true /* readOnly */);
 }
 #endif
 
