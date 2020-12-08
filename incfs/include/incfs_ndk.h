@@ -44,6 +44,7 @@ static const int kIncFsFileIdStringLength = sizeof(IncFsFileId) * 2;
 typedef enum {
     INCFS_FEATURE_NONE = 0,
     INCFS_FEATURE_CORE = 1,
+    INCFS_FEATURE_V2 = 2,
 } IncFsFeatures;
 
 typedef int IncFsErrorCode;
@@ -51,6 +52,9 @@ typedef int64_t IncFsSize;
 typedef int32_t IncFsBlockIndex;
 typedef int IncFsFd;
 typedef struct IncFsControl IncFsControl;
+typedef int IncFsUid;
+
+static const IncFsUid kIncFsNoUid = -1;
 
 typedef struct {
     const char* data;
@@ -61,6 +65,7 @@ typedef enum {
     CMD,
     PENDING_READS,
     LOGS,
+    BLOCKS_WRITTEN,
     FDS_COUNT,
 } IncFsFdType;
 
@@ -90,6 +95,7 @@ typedef struct {
 typedef enum {
     INCFS_COMPRESSION_KIND_NONE,
     INCFS_COMPRESSION_KIND_LZ4,
+    INCFS_COMPRESSION_KIND_ZSTD,
 } IncFsCompressionKind;
 
 typedef enum {
@@ -113,11 +119,25 @@ typedef struct {
 } IncFsNewFileParams;
 
 typedef struct {
+    IncFsFileId sourceId;
+    IncFsSize sourceOffset;
+    IncFsSize size;
+} IncFsNewMappedFileParams;
+
+typedef struct {
     IncFsFileId id;
     uint64_t bootClockTsUs;
     IncFsBlockIndex block;
     uint32_t serialNo;
 } IncFsReadInfo;
+
+typedef struct {
+    IncFsFileId id;
+    uint64_t bootClockTsUs;
+    IncFsBlockIndex block;
+    uint32_t serialNo;
+    IncFsUid uid;
+} IncFsReadInfoWithUid;
 
 typedef struct {
     IncFsBlockIndex begin;
@@ -131,6 +151,20 @@ typedef struct {
     int32_t hashRangesCount;
     IncFsBlockIndex endIndex;
 } IncFsFilledRanges;
+
+typedef struct {
+    IncFsSize totalDataBlocks;
+    IncFsSize filledDataBlocks;
+    IncFsSize totalHashBlocks;
+    IncFsSize filledHashBlocks;
+} IncFsBlockCounts;
+
+typedef struct {
+    IncFsUid uid;
+    uint32_t minTimeUs;
+    uint32_t minPendingTimeUs;
+    uint32_t maxPendingTimeUs;
+} IncFsUidReadTimeouts;
 
 // All functions return -errno in case of failure.
 // All IncFsFd functions return >=0 in case of success.
@@ -155,7 +189,8 @@ IncFsFileId IncFs_FileIdFromMetadata(IncFsSpan metadata);
 IncFsControl* IncFs_Mount(const char* backingPath, const char* targetDir,
                           IncFsMountOptions options);
 IncFsControl* IncFs_Open(const char* dir);
-IncFsControl* IncFs_CreateControl(IncFsFd cmd, IncFsFd pendingReads, IncFsFd logs);
+IncFsControl* IncFs_CreateControl(IncFsFd cmd, IncFsFd pendingReads, IncFsFd logs,
+                                  IncFsFd blocksWritten);
 void IncFs_DeleteControl(IncFsControl* control);
 IncFsFd IncFs_GetControlFd(const IncFsControl* control, IncFsFdType type);
 IncFsSize IncFs_ReleaseControlFds(IncFsControl* control, IncFsFd out[], IncFsSize outSize);
@@ -169,6 +204,9 @@ IncFsErrorCode IncFs_Root(const IncFsControl* control, char buffer[], size_t* bu
 
 IncFsErrorCode IncFs_MakeFile(const IncFsControl* control, const char* path, int32_t mode,
                               IncFsFileId id, IncFsNewFileParams params);
+IncFsErrorCode IncFs_MakeMappedFile(const IncFsControl* control, const char* path, int32_t mode,
+                                    IncFsNewMappedFileParams params);
+
 IncFsErrorCode IncFs_MakeDir(const IncFsControl* control, const char* path, int32_t mode);
 IncFsErrorCode IncFs_MakeDirs(const IncFsControl* control, const char* path, int32_t mode);
 
@@ -194,10 +232,33 @@ IncFsErrorCode IncFs_WaitForPendingReads(const IncFsControl* control, int32_t ti
 IncFsErrorCode IncFs_WaitForPageReads(const IncFsControl* control, int32_t timeoutMs,
                                       IncFsReadInfo buffer[], size_t* bufferSize);
 
+IncFsErrorCode IncFs_WaitForPendingReadsWithUid(const IncFsControl* control, int32_t timeoutMs,
+                                                IncFsReadInfoWithUid buffer[], size_t* bufferSize);
+IncFsErrorCode IncFs_WaitForPageReadsWithUid(const IncFsControl* control, int32_t timeoutMs,
+                                             IncFsReadInfoWithUid buffer[], size_t* bufferSize);
+
+IncFsErrorCode IncFs_WaitForFsWrittenBlocksChange(const IncFsControl* control, int32_t timeoutMs,
+                                                  IncFsSize* count);
+
 IncFsFd IncFs_OpenForSpecialOpsByPath(const IncFsControl* control, const char* path);
 IncFsFd IncFs_OpenForSpecialOpsById(const IncFsControl* control, IncFsFileId id);
 
 IncFsErrorCode IncFs_WriteBlocks(const IncFsDataBlock blocks[], size_t blocksCount);
+
+IncFsErrorCode IncFs_SetUidReadTimeouts(const IncFsControl* control,
+                                        const IncFsUidReadTimeouts timeouts[], size_t count);
+IncFsErrorCode IncFs_GetUidReadTimeouts(const IncFsControl* control,
+                                        IncFsUidReadTimeouts timeoutsBuffer[], size_t* bufferSize);
+
+IncFsErrorCode IncFs_GetFileBlockCountByPath(const IncFsControl* control, const char* path,
+                                             IncFsBlockCounts* blockCount);
+IncFsErrorCode IncFs_GetFileBlockCountById(const IncFsControl* control, IncFsFileId id,
+                                           IncFsBlockCounts* blockCount);
+
+IncFsErrorCode IncFs_ListIncompleteFiles(const IncFsControl* control, IncFsFileId ids[],
+                                         size_t* bufferSize);
+
+IncFsErrorCode IncFs_WaitForLoadingComplete(const IncFsControl* control, int32_t timeoutMs);
 
 // Gets a collection of filled ranges in the file from IncFS. Uses the |outBuffer| memory, it has
 // to be big enough to fit all the ranges the caller is expecting.
