@@ -24,9 +24,10 @@
 
 #include "util/map_ptr.h"
 
-namespace android::incfs::util {
-
+namespace android::incfs {
 IncFsFileMap::IncFsFileMap() = default;
+IncFsFileMap::IncFsFileMap(IncFsFileMap&&) noexcept = default;
+IncFsFileMap& IncFsFileMap::operator =(IncFsFileMap&&) noexcept = default;
 IncFsFileMap::~IncFsFileMap() = default;
 
 const void* IncFsFileMap::unsafe_data() const {
@@ -45,18 +46,11 @@ const char* IncFsFileMap::file_name() const {
     return map_->getFileName();
 }
 
-#ifndef __ANDROID__
-bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* debug_file_name) {
-    if (fd < 0) return false;
-    map_ = std::make_unique<android::FileMap>();
-    return map_->create(debug_file_name, fd, offset, length, true /* readOnly */);
+#ifdef __ANDROID__
+bool IsVerificationEnabled(int fd) {
+    return isIncFsFd(fd) && isFullyLoaded(fd) != LoadingState::Full;
 }
 
-bool IncFsFileMap::IsVerificationEnabled() const {
-    return false;
-}
-
-#else
 using data_block_index_t = uint32_t;
 
 data_block_index_t get_block_index(const uint8_t* ptr, const uint8_t* start_block_ptr) {
@@ -69,21 +63,20 @@ bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* fil
         return false;
     }
 
-    // Initialize the block cache with enough buckets to hold all of the blocks within the
-    // memory-mapped region.
     fd_ = fd;
-    size_t offset_diff = offset % INCFS_DATA_FILE_BLOCK_SIZE;
-    size_t base_length_ = length + offset_diff;
-    start_block_offset_ = offset - offset_diff;
-    start_block_ptr_ = reinterpret_cast<const uint8_t*>(map_->getDataPtr()) - offset_diff;
+    verification_enabled_ = IsVerificationEnabled(fd);
+    if (verification_enabled_) {
+        // Initialize the block cache with enough buckets to hold all of the blocks within the
+        // memory-mapped region.
+        size_t offset_diff = offset % INCFS_DATA_FILE_BLOCK_SIZE;
+        size_t base_length_ = length + offset_diff;
+        start_block_offset_ = offset - offset_diff;
+        start_block_ptr_ = reinterpret_cast<const uint8_t*>(map_->getDataPtr()) - offset_diff;
 
-    const size_t bucket_count = (base_length_ / INCFS_DATA_FILE_BLOCK_SIZE) / kBucketBits;
-    loaded_blocks_ = std::vector<std::atomic<bucket_t> >(bucket_count + 1U);
+        const size_t bucket_count = (base_length_ / INCFS_DATA_FILE_BLOCK_SIZE) / kBucketBits;
+        loaded_blocks_ = std::vector<std::atomic<bucket_t> >(bucket_count + 1U);
+    }
     return true;
-}
-
-bool IncFsFileMap::IsVerificationEnabled() const {
-    return isIncFsFd(fd_) && isFullyLoaded(fd_) != LoadingState::Full;
 }
 
 bool IncFsFileMap::Verify(const uint8_t* const& data_start, const uint8_t* const& data_end,
@@ -96,7 +89,7 @@ bool IncFsFileMap::Verify(const uint8_t* const& data_start, const uint8_t* const
     // safely.
     for (data_block_index_t curr_index = start_index; curr_index <= end_index; ++curr_index) {
         const size_t i = curr_index / kBucketBits;
-        const auto present_bit = 1U << (curr_index % kBucketBits);
+        const bucket_t present_bit = 1U << (curr_index % kBucketBits);
         std::atomic<bucket_t>& bucket = loaded_blocks_[i];
         if (LIKELY(bucket.load(std::memory_order_relaxed) & present_bit)) {
             continue;
@@ -105,7 +98,7 @@ bool IncFsFileMap::Verify(const uint8_t* const& data_start, const uint8_t* const
         // Touch all of the blocks with pread to ensure that the region of data is fully present.
         uint8_t value;
         const off64_t read_offset = (curr_index * INCFS_DATA_FILE_BLOCK_SIZE) + start_block_offset_;
-        if (UNLIKELY(!android::base::ReadFullyAtOffset(fd_, &value, 1U, read_offset))) {
+        if (UNLIKELY(TEMP_FAILURE_RETRY(pread64(fd_, &value, 1U, read_offset)) <= 0)) {
             success = false;
             break;
         }
@@ -130,6 +123,12 @@ bool IncFsFileMap::Verify(const uint8_t* const& data_start, const uint8_t* const
     *prev_verified_block = start_block_ptr_ + (end_index * INCFS_DATA_FILE_BLOCK_SIZE);
     return true;
 }
+
+#else
+bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* file_name) {
+    map_ = std::make_unique<android::FileMap>();
+    return map_->create(file_name, fd, offset, length, true /* readOnly */);
+}
 #endif
 
-} // namespace android::incfs::util
+} // namespace android::incfs
