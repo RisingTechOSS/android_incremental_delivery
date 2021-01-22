@@ -458,9 +458,9 @@ static bool restoreconControlFiles(std::string_view targetDir) {
     if (!restorecon(path::join(targetDir, INCFS_LOG_FILENAME).c_str())) {
         return false;
     }
-    if ((features() & Features::v2)
-         && !restorecon(path::join(targetDir, INCFS_BLOCKS_WRITTEN_FILENAME).c_str())) {
-         return false;
+    if ((features() & Features::v2) &&
+        !restorecon(path::join(targetDir, INCFS_BLOCKS_WRITTEN_FILENAME).c_str())) {
+        return false;
     }
     return true;
 }
