@@ -29,6 +29,7 @@ constexpr char kSizeAttrName[] = INCFS_XATTR_SIZE_NAME;
 constexpr char kMetadataAttrName[] = INCFS_XATTR_METADATA_NAME;
 
 constexpr char kIndexDir[] = ".index";
+constexpr char kIncompleteDir[] = ".incomplete";
 
 namespace details {
 
@@ -116,6 +117,10 @@ inline IncFsFd UniqueControl::logs() const {
     return IncFs_GetControlFd(mControl, LOGS);
 }
 
+inline IncFsFd UniqueControl::blocksWritten() const {
+    return IncFs_GetControlFd(mControl, BLOCKS_WRITTEN);
+}
+
 inline UniqueControl::Fds UniqueControl::releaseFds() {
     Fds result;
     IncFsFd fds[result.size()];
@@ -137,8 +142,9 @@ inline UniqueControl open(std::string_view dir) {
     return UniqueControl(control);
 }
 
-inline UniqueControl createControl(IncFsFd cmd, IncFsFd pendingReads, IncFsFd logs) {
-    return UniqueControl(IncFs_CreateControl(cmd, pendingReads, logs));
+inline UniqueControl createControl(IncFsFd cmd, IncFsFd pendingReads, IncFsFd logs,
+                                   IncFsFd blocksWritten) {
+    return UniqueControl(IncFs_CreateControl(cmd, pendingReads, logs, blocksWritten));
 }
 
 inline ErrorCode setOptions(const Control& control, MountOptions newOptions) {
@@ -229,15 +235,15 @@ inline ErrorCode unlink(const Control& control, std::string_view path) {
     return IncFs_Unlink(control, details::c_str(path));
 }
 
-inline WaitResult waitForPendingReads(const Control& control, std::chrono::milliseconds timeout,
-                                      std::vector<ReadInfo>* pendingReadsBuffer) {
-    static constexpr auto kDefaultBufferSize = INCFS_DEFAULT_PENDING_READ_BUFFER_SIZE;
+template <class ReadInfoStruct, class Impl>
+WaitResult waitForReads(const Control& control, std::chrono::milliseconds timeout,
+                        std::vector<ReadInfoStruct>* pendingReadsBuffer, size_t defaultBufferSize,
+                        Impl impl) {
     if (pendingReadsBuffer->empty()) {
-        pendingReadsBuffer->resize(kDefaultBufferSize);
+        pendingReadsBuffer->resize(defaultBufferSize);
     }
     size_t size = pendingReadsBuffer->size();
-    IncFsErrorCode err =
-            IncFs_WaitForPendingReads(control, timeout.count(), pendingReadsBuffer->data(), &size);
+    IncFsErrorCode err = impl(control, timeout.count(), pendingReadsBuffer->data(), &size);
     pendingReadsBuffer->resize(size);
     switch (err) {
         case 0:
@@ -248,24 +254,32 @@ inline WaitResult waitForPendingReads(const Control& control, std::chrono::milli
     return WaitResult(err);
 }
 
+inline WaitResult waitForPendingReads(const Control& control, std::chrono::milliseconds timeout,
+                                      std::vector<ReadInfo>* pendingReadsBuffer) {
+    return waitForReads(control, timeout, pendingReadsBuffer,
+                        INCFS_DEFAULT_PENDING_READ_BUFFER_SIZE, IncFs_WaitForPendingReads);
+}
+
+inline WaitResult waitForPendingReads(const Control& control, std::chrono::milliseconds timeout,
+                                      std::vector<ReadInfoWithUid>* pendingReadsBuffer) {
+    return waitForReads(control, timeout, pendingReadsBuffer,
+                        INCFS_DEFAULT_PENDING_READ_BUFFER_SIZE, IncFs_WaitForPendingReadsWithUid);
+}
+
 inline WaitResult waitForPageReads(const Control& control, std::chrono::milliseconds timeout,
                                    std::vector<ReadInfo>* pageReadsBuffer) {
     static constexpr auto kDefaultBufferSize =
             INCFS_DEFAULT_PAGE_READ_BUFFER_PAGES * PAGE_SIZE / sizeof(ReadInfo);
-    if (pageReadsBuffer->empty()) {
-        pageReadsBuffer->resize(kDefaultBufferSize);
-    }
-    size_t size = pageReadsBuffer->size();
-    IncFsErrorCode err =
-            IncFs_WaitForPageReads(control, timeout.count(), pageReadsBuffer->data(), &size);
-    pageReadsBuffer->resize(size);
-    switch (err) {
-        case 0:
-            return WaitResult::HaveData;
-        case -ETIMEDOUT:
-            return WaitResult::Timeout;
-    }
-    return WaitResult(err);
+    return waitForReads(control, timeout, pageReadsBuffer, kDefaultBufferSize,
+                        IncFs_WaitForPageReads);
+}
+
+inline WaitResult waitForPageReads(const Control& control, std::chrono::milliseconds timeout,
+                                   std::vector<ReadInfoWithUid>* pageReadsBuffer) {
+    static constexpr auto kDefaultBufferSize =
+            INCFS_DEFAULT_PAGE_READ_BUFFER_PAGES * PAGE_SIZE / sizeof(ReadInfoWithUid);
+    return waitForReads(control, timeout, pageReadsBuffer, kDefaultBufferSize,
+                        IncFs_WaitForPageReadsWithUid);
 }
 
 inline UniqueFd openForSpecialOps(const Control& control, FileId fileId) {
@@ -330,6 +344,75 @@ inline LoadingState isFullyLoaded(int fd) {
         default:
             return LoadingState(res);
     }
+}
+
+inline std::optional<std::vector<FileId>> listIncompleteFiles(const Control& control) {
+    std::vector<FileId> ids(32);
+    size_t count = ids.size();
+    auto err = IncFs_ListIncompleteFiles(control, ids.data(), &count);
+    if (err == -E2BIG) {
+        ids.resize(count);
+        err = IncFs_ListIncompleteFiles(control, ids.data(), &count);
+    }
+    if (err) {
+        errno = -err;
+        return {};
+    }
+    ids.resize(count);
+    return std::move(ids);
+}
+
+inline WaitResult waitForLoadingComplete(const Control& control,
+                                         std::chrono::milliseconds timeout) {
+    const auto res = IncFs_WaitForLoadingComplete(control, timeout.count());
+    switch (res) {
+        case 0:
+            return WaitResult::HaveData;
+        case -ETIMEDOUT:
+            return WaitResult::Timeout;
+        default:
+            return WaitResult(res);
+    }
+}
+
+inline std::optional<BlockCounts> getBlockCount(const Control& control, FileId fileId) {
+    BlockCounts counts;
+    auto res = IncFs_GetFileBlockCountById(control, fileId, &counts);
+    if (res) {
+        errno = -res;
+        return {};
+    }
+    return counts;
+}
+
+inline std::optional<BlockCounts> getBlockCount(const Control& control, std::string_view path) {
+    BlockCounts counts;
+    auto res = IncFs_GetFileBlockCountByPath(control, details::c_str(path), &counts);
+    if (res) {
+        errno = -res;
+        return {};
+    }
+    return counts;
+}
+
+inline ErrorCode setUidReadTimeouts(const Control& control, Span<const UidReadTimeouts> timeouts) {
+    return IncFs_SetUidReadTimeouts(control, timeouts.data(), timeouts.size());
+}
+
+inline std::optional<std::vector<UidReadTimeouts>> getUidReadTimeouts(const Control& control) {
+    std::vector<UidReadTimeouts> timeouts(32);
+    size_t count = timeouts.size();
+    auto res = IncFs_GetUidReadTimeouts(control, timeouts.data(), &count);
+    if (res == -E2BIG) {
+        timeouts.resize(count);
+        res = IncFs_GetUidReadTimeouts(control, timeouts.data(), &count);
+    }
+    if (res) {
+        errno = -res;
+        return {};
+    }
+    timeouts.resize(count);
+    return std::move(timeouts);
 }
 
 } // namespace android::incfs

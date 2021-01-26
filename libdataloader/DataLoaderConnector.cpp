@@ -70,6 +70,7 @@ struct JniIds {
     jfieldID controlCmd;
     jfieldID controlPendingReads;
     jfieldID controlLog;
+    jfieldID controlBlocksWritten;
 
     jfieldID paramsType;
     jfieldID paramsPackageName;
@@ -161,6 +162,8 @@ struct JniIds {
         controlPendingReads = GetFieldIDOrDie(env, incControl, "pendingReads",
                                               "Landroid/os/ParcelFileDescriptor;");
         controlLog = GetFieldIDOrDie(env, incControl, "log", "Landroid/os/ParcelFileDescriptor;");
+        controlBlocksWritten = GetFieldIDOrDie(env, incControl, "blocksWritten",
+                                               "Landroid/os/ParcelFileDescriptor;");
 
         auto params = FindClassOrDie(env, "android/content/pm/DataLoaderParamsParcel");
         paramsType = GetFieldIDOrDie(env, params, "type", "I");
@@ -534,7 +537,10 @@ static UniqueControl createIncFsControlFromManaged(JNIEnv* env, jobject managedC
     auto pr = createFdFromManaged(env,
                                   env->GetObjectField(managedIncControl, jni.controlPendingReads));
     auto log = createFdFromManaged(env, env->GetObjectField(managedIncControl, jni.controlLog));
-    return android::incfs::createControl(cmd, pr, log);
+    auto blocksWritten =
+            createFdFromManaged(env,
+                                env->GetObjectField(managedIncControl, jni.controlBlocksWritten));
+    return android::incfs::createControl(cmd, pr, log, blocksWritten);
 }
 
 DataLoaderParamsPair::DataLoaderParamsPair(android::dataloader::DataLoaderParams&& dataLoaderParams)

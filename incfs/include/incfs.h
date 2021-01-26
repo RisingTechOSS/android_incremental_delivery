@@ -20,6 +20,7 @@
 #include <array>
 #include <chrono>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -39,6 +40,7 @@ enum MountFlags {
 enum Features {
     none = INCFS_FEATURE_NONE,
     core = INCFS_FEATURE_CORE,
+    v2 = INCFS_FEATURE_V2,
 };
 
 enum class HashAlgorithm {
@@ -49,6 +51,7 @@ enum class HashAlgorithm {
 enum class CompressionKind {
     none = INCFS_COMPRESSION_KIND_NONE,
     lz4 = INCFS_COMPRESSION_KIND_LZ4,
+    zstd = INCFS_COMPRESSION_KIND_ZSTD,
 };
 
 enum class BlockKind {
@@ -97,6 +100,7 @@ public:
     IncFsFd cmd() const;
     IncFsFd pendingReads() const;
     IncFsFd logs() const;
+    IncFsFd blocksWritten() const;
     operator IncFsControl*() const { return mControl; };
     void close();
 
@@ -175,16 +179,22 @@ using Size = IncFsSize;
 using BlockIndex = IncFsBlockIndex;
 using ErrorCode = IncFsErrorCode;
 using Fd = IncFsFd;
+using Uid = IncFsUid;
 using ReadInfo = IncFsReadInfo;
+using ReadInfoWithUid = IncFsReadInfoWithUid;
 using RawMetadata = ByteBuffer;
 using RawSignature = ByteBuffer;
 using MountOptions = IncFsMountOptions;
 using DataBlock = IncFsDataBlock;
 using NewFileParams = IncFsNewFileParams;
+using NewMappedFileParams = IncFsNewMappedFileParams;
+using BlockCounts = IncFsBlockCounts;
+using UidReadTimeouts = IncFsUidReadTimeouts;
 
 constexpr auto kDefaultReadTimeout = std::chrono::milliseconds(INCFS_DEFAULT_READ_TIMEOUT_MS);
 constexpr int kBlockSize = INCFS_DATA_FILE_BLOCK_SIZE;
 const auto kInvalidFileId = kIncFsInvalidFileId;
+const auto kNoUid = kIncFsNoUid;
 
 bool enabled();
 Features features();
@@ -197,7 +207,7 @@ bool isIncFsPath(std::string_view path);
 UniqueControl mount(std::string_view backingPath, std::string_view targetDir,
                     IncFsMountOptions options);
 UniqueControl open(std::string_view dir);
-UniqueControl createControl(IncFsFd cmd, IncFsFd pendingReads, IncFsFd logs);
+UniqueControl createControl(IncFsFd cmd, IncFsFd pendingReads, IncFsFd logs, IncFsFd blocksWritten);
 
 ErrorCode setOptions(const Control& control, MountOptions newOptions);
 
@@ -208,6 +218,8 @@ std::string root(const Control& control);
 
 ErrorCode makeFile(const Control& control, std::string_view path, int mode, FileId fileId,
                    NewFileParams params);
+ErrorCode makeMappedFile(const Control& control, std::string_view path, int mode,
+                         NewMappedFileParams params);
 ErrorCode makeDir(const Control& control, std::string_view path, int mode = 0555);
 ErrorCode makeDirs(const Control& control, std::string_view path, int mode = 0555);
 
@@ -227,6 +239,10 @@ WaitResult waitForPendingReads(const Control& control, std::chrono::milliseconds
                                std::vector<ReadInfo>* pendingReadsBuffer);
 WaitResult waitForPageReads(const Control& control, std::chrono::milliseconds timeout,
                             std::vector<ReadInfo>* pageReadsBuffer);
+WaitResult waitForPendingReads(const Control& control, std::chrono::milliseconds timeout,
+                               std::vector<ReadInfoWithUid>* pendingReadsBuffer);
+WaitResult waitForPageReads(const Control& control, std::chrono::milliseconds timeout,
+                            std::vector<ReadInfoWithUid>* pageReadsBuffer);
 
 UniqueFd openForSpecialOps(const Control& control, FileId fileId);
 UniqueFd openForSpecialOps(const Control& control, std::string_view path);
@@ -235,6 +251,15 @@ ErrorCode writeBlocks(Span<const DataBlock> blocks);
 std::pair<ErrorCode, FilledRanges> getFilledRanges(int fd);
 std::pair<ErrorCode, FilledRanges> getFilledRanges(int fd, FilledRanges::RangeBuffer&& buffer);
 std::pair<ErrorCode, FilledRanges> getFilledRanges(int fd, FilledRanges&& resumeFrom);
+
+ErrorCode setUidReadTimeouts(const Control& control, Span<const UidReadTimeouts> timeouts);
+std::optional<std::vector<UidReadTimeouts>> getUidReadTimeouts(const Control& control);
+
+std::optional<BlockCounts> getBlockCount(const Control& control, FileId fileId);
+std::optional<BlockCounts> getBlockCount(const Control& control, std::string_view path);
+
+std::optional<std::vector<FileId>> listIncompleteFiles(const Control& control);
+WaitResult waitForLoadingComplete(const Control& control, std::chrono::milliseconds timeout);
 
 enum class LoadingState { Full, MissingBlocks };
 LoadingState isFullyLoaded(int fd);
