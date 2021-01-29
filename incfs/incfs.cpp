@@ -1477,9 +1477,9 @@ IncFsErrorCode IncFs_SetUidReadTimeouts(const IncFsControl* control,
     for (size_t i = 0; i != count; ++i) {
         argTimeouts[i] = incfs_per_uid_read_timeouts{
                 .uid = (uint32_t)timeouts[i].uid,
-                .min_time_ms = timeouts[i].minTimeUs / 1000,
-                .min_pending_time_ms = timeouts[i].minPendingTimeUs / 1000,
-                .max_pending_time_ms = timeouts[i].maxPendingTimeUs / 1000,
+                .min_time_us = timeouts[i].minTimeUs,
+                .min_pending_time_us = timeouts[i].minPendingTimeUs,
+                .max_pending_time_us = timeouts[i].maxPendingTimeUs,
         };
     }
     incfs_set_read_timeouts_args args = {.timeouts_array = (uint64_t)(uintptr_t)argTimeouts.data(),
@@ -1516,9 +1516,9 @@ IncFsErrorCode IncFs_GetUidReadTimeouts(const IncFsControl* control,
     *bufferSize = args.timeouts_array_size_out / sizeof(*argTimeouts.data());
     for (size_t i = 0; i != *bufferSize; ++i) {
         timeouts[i].uid = argTimeouts[i].uid;
-        timeouts[i].minTimeUs = argTimeouts[i].min_time_ms * 1000;
-        timeouts[i].minPendingTimeUs = argTimeouts[i].min_pending_time_ms * 1000;
-        timeouts[i].maxPendingTimeUs = argTimeouts[i].max_pending_time_ms * 1000;
+        timeouts[i].minTimeUs = argTimeouts[i].min_time_us;
+        timeouts[i].minPendingTimeUs = argTimeouts[i].min_pending_time_us;
+        timeouts[i].maxPendingTimeUs = argTimeouts[i].max_pending_time_us;
     }
     return 0;
 }
