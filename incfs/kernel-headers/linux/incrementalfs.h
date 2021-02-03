@@ -28,12 +28,15 @@
 #define INCFS_MAX_HASH_SIZE 32
 #define INCFS_MAX_FILE_ATTR_SIZE 512
 
+#define INCFS_INDEX_NAME ".index"
+#define INCFS_INCOMPLETE_NAME ".incomplete"
 #define INCFS_PENDING_READS_FILENAME ".pending_reads"
 #define INCFS_LOG_FILENAME ".log"
 #define INCFS_BLOCKS_WRITTEN_FILENAME ".blocks_written"
 #define INCFS_XATTR_ID_NAME (XATTR_USER_PREFIX "incfs.id")
 #define INCFS_XATTR_SIZE_NAME (XATTR_USER_PREFIX "incfs.size")
 #define INCFS_XATTR_METADATA_NAME (XATTR_USER_PREFIX "incfs.metadata")
+#define INCFS_XATTR_VERITY_NAME (XATTR_USER_PREFIX "incfs.verity")
 
 #define INCFS_MAX_SIGNATURE_SIZE 8096
 #define INCFS_SIGNATURE_VERSION 2
@@ -135,6 +138,11 @@
  * Basic flag stating that the core incfs file system is available
  */
 #define INCFS_FEATURE_FLAG_COREFS "corefs"
+
+/*
+ * zstd compression support
+ */
+#define INCFS_FEATURE_FLAG_ZSTD "zstd"
 
 /*
  * v2 feature set support. Covers:
@@ -485,24 +493,24 @@ struct incfs_per_uid_read_timeouts {
 	__u32 uid;
 
 	/*
-	 * Min time to read any block. Note that this doesn't apply to reads
-	 * which are satisfied from the page cache.
+	 * Min time in microseconds to read any block. Note that this doesn't
+	 * apply to reads which are satisfied from the page cache.
 	 */
-	__u32 min_time_ms;
+	__u32 min_time_us;
 
 	/*
-	 * Min time to satisfy a pending read. Must be >= min_time_ms. Any
-	 * pending read which is filled before this time will be delayed so
-	 * that the total read time >= this value.
+	 * Min time in microseconds to satisfy a pending read. Any pending read
+	 * which is filled before this time will be delayed so that the total
+	 * read time >= this value.
 	 */
-	__u32 min_pending_time_ms;
+	__u32 min_pending_time_us;
 
 	/*
-	 * Max time to satisfy a pending read before the read times out.
-	 * If set to U32_MAX, defaults to mount options read_timeout_ms=
-	 * Must be >= min_pending_time_ms
+	 * Max time in microseconds to satisfy a pending read before the read
+	 * times out. If set to U32_MAX, defaults to mount options
+	 * read_timeout_ms * 1000. Must be >= min_pending_time_us
 	 */
-	__u32 max_pending_time_ms;
+	__u32 max_pending_time_us;
 };
 
 /*
