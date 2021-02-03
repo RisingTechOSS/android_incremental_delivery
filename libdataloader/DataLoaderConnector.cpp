@@ -36,6 +36,7 @@ namespace {
 using namespace std::literals;
 
 using ReadInfo = android::dataloader::ReadInfo;
+using ReadInfoWithUid = android::dataloader::ReadInfoWithUid;
 
 using FileId = android::incfs::FileId;
 using RawMetadata = android::incfs::RawMetadata;
@@ -234,14 +235,10 @@ using DataLoaderConnectorPtr = std::shared_ptr<DataLoaderConnector>;
 using DataLoaderConnectorsMap = std::unordered_map<int, DataLoaderConnectorPtr>;
 
 struct Globals {
-    Globals() {
-        managedDataLoaderFactory =
-                new android::dataloader::details::DataLoaderFactoryImpl([](auto jvm, auto) {
-                    return std::make_unique<android::dataloader::ManagedDataLoader>(jvm);
-                });
-    }
+    Globals() { managedDataLoaderFactory = new android::dataloader::ManagedDataLoaderFactory(); }
 
     DataLoaderFactory* managedDataLoaderFactory = nullptr;
+    DataLoaderFactory* legacyDataLoaderFactory = nullptr;
     DataLoaderFactory* dataLoaderFactory = nullptr;
 
     std::mutex dataLoaderConnectorsLock;
@@ -253,6 +250,8 @@ struct Globals {
     std::thread logLooperThread;
     std::vector<ReadInfo> pendingReads;
     std::vector<ReadInfo> pageReads;
+    std::vector<ReadInfoWithUid> pendingReadsWithUid;
+    std::vector<ReadInfoWithUid> pageReadsWithUid;
 };
 
 static Globals& globals() {
@@ -317,28 +316,51 @@ public:
         env->DeleteGlobalRef(mListener);
     } // to avoid delete-non-virtual-dtor
 
+    bool tryFactory(DataLoaderFactory* factory, bool withFeatures,
+                    const DataLoaderParamsPair& params, jobject managedParams) {
+        if (!factory) {
+            return true;
+        }
+
+        // Let's try the non-default first.
+        mDataLoader = factory->onCreate(factory, &params.ndkDataLoaderParams(), this, this, mJvm,
+                                        mService, managedParams);
+        if (checkAndClearJavaException(__func__)) {
+            return false;
+        }
+        if (!mDataLoader) {
+            return true;
+        }
+
+        mDataLoaderFeatures = withFeatures && mDataLoader->getFeatures
+                ? mDataLoader->getFeatures(mDataLoader)
+                : DATA_LOADER_FEATURE_NONE;
+        if (mDataLoaderFeatures & DATA_LOADER_FEATURE_UID) {
+            ALOGE("DataLoader supports UID");
+            CHECK(mDataLoader->onPageReadsWithUid);
+            CHECK(mDataLoader->onPendingReadsWithUid);
+        }
+        return true;
+    }
+
     bool onCreate(const DataLoaderParamsPair& params, jobject managedParams) {
         CHECK(mDataLoader == nullptr);
 
-        if (auto factory = globals().dataLoaderFactory) {
-            // Let's try the non-default first.
-            mDataLoader = factory->onCreate(factory, &params.ndkDataLoaderParams(), this, this,
-                                            mJvm, mService, managedParams);
-            if (checkAndClearJavaException(__func__)) {
-                return false;
-            }
+        if (!mDataLoader &&
+            !tryFactory(globals().dataLoaderFactory, /*withFeatures=*/true, params,
+                        managedParams)) {
+            return false;
         }
-
-        if (!mDataLoader) {
-            // Didn't work, let's try the default.
-            auto factory = globals().managedDataLoaderFactory;
-            mDataLoader = factory->onCreate(factory, &params.ndkDataLoaderParams(), this, this,
-                                            mJvm, mService, managedParams);
-            if (checkAndClearJavaException(__func__)) {
-                return false;
-            }
+        if (!mDataLoader &&
+            !tryFactory(globals().legacyDataLoaderFactory, /*withFeatures=*/false, params,
+                        managedParams)) {
+            return false;
         }
-
+        if (!mDataLoader &&
+            !tryFactory(globals().managedDataLoaderFactory, /*withFeatures=*/false, params,
+                        managedParams)) {
+            return false;
+        }
         if (!mDataLoader) {
             return false;
         }
@@ -347,7 +369,7 @@ public:
     }
     bool onStart() {
         CHECK(mDataLoader);
-        bool result = mDataLoader->onStart(mDataLoader);
+        bool result = !mDataLoader->onStart || mDataLoader->onStart(mDataLoader);
         if (checkAndClearJavaException(__func__)) {
             result = false;
         }
@@ -363,18 +385,22 @@ public:
         std::lock_guard{mPendingReadsLooperBusy}; // NOLINT
         std::lock_guard{mLogLooperBusy}; // NOLINT
 
-        mDataLoader->onStop(mDataLoader);
+        if (mDataLoader->onStop) {
+            mDataLoader->onStop(mDataLoader);
+        }
         checkAndClearJavaException(__func__);
     }
     void onDestroy() {
         CHECK(mDataLoader);
-        mDataLoader->onDestroy(mDataLoader);
+        if (mDataLoader->onDestroy) {
+            mDataLoader->onDestroy(mDataLoader);
+        }
         checkAndClearJavaException(__func__);
     }
 
     bool onPrepareImage(const android::dataloader::DataLoaderInstallationFiles& addedFiles) {
         CHECK(mDataLoader);
-        bool result =
+        bool result = !mDataLoader->onPrepareImage ||
                 mDataLoader->onPrepareImage(mDataLoader, addedFiles.data(), addedFiles.size());
         if (checkAndClearJavaException(__func__)) {
             result = false;
@@ -382,7 +408,8 @@ public:
         return result;
     }
 
-    int onPendingReadsLooperEvent(std::vector<ReadInfo>& pendingReads) {
+    template <class ReadInfoType>
+    int onPendingReadsLooperEvent(std::vector<ReadInfoType>& pendingReads) {
         CHECK(mDataLoader);
         std::lock_guard lock{mPendingReadsLooperBusy};
         while (mRunning.load(std::memory_order_relaxed)) {
@@ -392,11 +419,23 @@ public:
                 pendingReads.empty()) {
                 return 1;
             }
-            mDataLoader->onPendingReads(mDataLoader, pendingReads.data(), pendingReads.size());
+            if constexpr (std::is_same_v<ReadInfoType, ReadInfo>) {
+                if (mDataLoader->onPendingReads) {
+                    mDataLoader->onPendingReads(mDataLoader, pendingReads.data(),
+                                                pendingReads.size());
+                }
+            } else {
+                if (mDataLoader->onPendingReadsWithUid) {
+                    mDataLoader->onPendingReadsWithUid(mDataLoader, pendingReads.data(),
+                                                       pendingReads.size());
+                }
+            }
         }
         return 1;
     }
-    int onLogLooperEvent(std::vector<ReadInfo>& pageReads) {
+
+    template <class ReadInfoType>
+    int onLogLooperEvent(std::vector<ReadInfoType>& pageReads) {
         CHECK(mDataLoader);
         std::lock_guard lock{mLogLooperBusy};
         while (mRunning.load(std::memory_order_relaxed)) {
@@ -406,9 +445,38 @@ public:
                 pageReads.empty()) {
                 return 1;
             }
-            mDataLoader->onPageReads(mDataLoader, pageReads.data(), pageReads.size());
+            if constexpr (std::is_same_v<ReadInfoType, ReadInfo>) {
+                if (mDataLoader->onPageReads) {
+                    mDataLoader->onPageReads(mDataLoader, pageReads.data(), pageReads.size());
+                }
+            } else {
+                if (mDataLoader->onPageReadsWithUid) {
+                    mDataLoader->onPageReadsWithUid(mDataLoader, pageReads.data(),
+                                                    pageReads.size());
+                }
+            }
         }
         return 1;
+    }
+
+    int onPendingReadsLooperEvent(std::vector<ReadInfo>& pendingReads,
+                                  std::vector<ReadInfoWithUid>& pendingReadsWithUid) {
+        CHECK(mDataLoader);
+        if (mDataLoaderFeatures & DATA_LOADER_FEATURE_UID) {
+            return this->onPendingReadsLooperEvent(pendingReadsWithUid);
+        } else {
+            return this->onPendingReadsLooperEvent(pendingReads);
+        }
+    }
+
+    int onLogLooperEvent(std::vector<ReadInfo>& pageReads,
+                         std::vector<ReadInfoWithUid>& pageReadsWithUid) {
+        CHECK(mDataLoader);
+        if (mDataLoaderFeatures & DATA_LOADER_FEATURE_UID) {
+            return this->onLogLooperEvent(pageReadsWithUid);
+        } else {
+            return this->onLogLooperEvent(pageReads);
+        }
     }
 
     void writeData(jstring name, jlong offsetBytes, jlong lengthBytes, jobject incomingFd) const {
@@ -483,6 +551,7 @@ private:
     UniqueControl const mControl;
 
     ::DataLoader* mDataLoader = nullptr;
+    DataLoaderFeatures mDataLoaderFeatures = DATA_LOADER_FEATURE_NONE;
 
     std::mutex mPendingReadsLooperBusy;
     std::mutex mLogLooperBusy;
@@ -495,7 +564,8 @@ static int onPendingReadsLooperEvent(int fd, int events, void* data) {
         return 0;
     }
     auto&& dataLoaderConnector = (DataLoaderConnector*)data;
-    return dataLoaderConnector->onPendingReadsLooperEvent(globals().pendingReads);
+    return dataLoaderConnector->onPendingReadsLooperEvent(globals().pendingReads,
+                                                          globals().pendingReadsWithUid);
 }
 
 static int onLogLooperEvent(int fd, int events, void* data) {
@@ -504,7 +574,7 @@ static int onLogLooperEvent(int fd, int events, void* data) {
         return 0;
     }
     auto&& dataLoaderConnector = (DataLoaderConnector*)data;
-    return dataLoaderConnector->onLogLooperEvent(globals().pageReads);
+    return dataLoaderConnector->onLogLooperEvent(globals().pageReads, globals().pageReadsWithUid);
 }
 
 static int createFdFromManaged(JNIEnv* env, jobject pfd) {
@@ -620,6 +690,11 @@ static std::string pathFromFd(int fd) {
 } // namespace
 
 void DataLoader_Initialize(struct ::DataLoaderFactory* factory) {
+    CHECK(factory) << "DataLoader factory is invalid.";
+    globals().legacyDataLoaderFactory = factory;
+}
+
+void DataLoader_Initialize_WithFeatures(struct ::DataLoaderFactory* factory) {
     CHECK(factory) << "DataLoader factory is invalid.";
     globals().dataLoaderFactory = factory;
 }
