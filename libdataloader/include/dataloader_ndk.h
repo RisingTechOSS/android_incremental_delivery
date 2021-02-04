@@ -44,6 +44,11 @@ typedef enum {
     DATA_LOADER_LOCATION_MEDIA_DATA = 2,
 } DataLoaderLocation;
 
+typedef enum {
+    DATA_LOADER_FEATURE_NONE = 0,
+    DATA_LOADER_FEATURE_UID = 1 << 0,
+} DataLoaderFeatures;
+
 struct DataLoaderParams {
     int type;
     const char* packageName;
@@ -81,6 +86,7 @@ typedef jobject DataLoaderServiceConnectorPtr;
 typedef jobject DataLoaderServiceParamsPtr;
 
 struct DataLoader {
+    // DataLoader v1.
     bool (*onStart)(struct DataLoader* self);
     void (*onStop)(struct DataLoader* self);
     void (*onDestroy)(struct DataLoader* self);
@@ -92,6 +98,15 @@ struct DataLoader {
                            int pendingReadsCount);
     void (*onPageReads)(struct DataLoader* self, const IncFsReadInfo pageReads[],
                         int pageReadsCount);
+
+    // DataLoader v2, with features.
+    // Use DataLoader_Initialize_WithFeatures to set a factory for v2 DataLoader.
+    DataLoaderFeatures (*getFeatures)(struct DataLoader* self);
+
+    void (*onPendingReadsWithUid)(struct DataLoader* self,
+                                  const IncFsReadInfoWithUid pendingReads[], int pendingReadsCount);
+    void (*onPageReadsWithUid)(struct DataLoader* self, const IncFsReadInfoWithUid pageReads[],
+                               int pageReadsCount);
 };
 
 struct DataLoaderFactory {
@@ -101,6 +116,7 @@ struct DataLoaderFactory {
                                    DataLoaderServiceParamsPtr);
 };
 void DataLoader_Initialize(struct DataLoaderFactory*);
+void DataLoader_Initialize_WithFeatures(struct DataLoaderFactory*);
 
 void DataLoader_FilesystemConnector_writeData(DataLoaderFilesystemConnectorPtr, jstring name,
                                               jlong offsetBytes, jlong lengthBytes,
