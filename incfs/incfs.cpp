@@ -210,13 +210,10 @@ bool IncFs_IsEnabled() {
 }
 
 static Features readIncFsFeatures() {
-    if (!init().enabledAndReady()) {
-        return Features::none;
-    }
-
     static const char kSysfsFeaturesDir[] = "/sys/fs/" INCFS_NAME "/features";
     const auto dir = path::openDir(kSysfsFeaturesDir);
     if (!dir) {
+        PLOG(ERROR) << "IncFs_Features: failed to open features dir, assuming v1/none.";
         return Features::none;
     }
 
@@ -231,6 +228,8 @@ static Features readIncFsFeatures() {
             res |= Features::v2;
         }
     }
+
+    PLOG(INFO) << "IncFs_Features: " << ((res & Features::v2) ? "v2" : "v1");
 
     return Features(res);
 }
