@@ -23,6 +23,7 @@
 #include <android-base/logging.h>
 #include <android-base/no_destructor.h>
 #include <android-base/parsebool.h>
+#include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
@@ -115,8 +116,17 @@ static bool isFsAvailable() {
     return filesystems.find("\t" INCFS_NAME "\n") != std::string::npos;
 }
 
+static int getFirstApiLevel() {
+    uint64_t api_level = android::base::GetUintProperty<uint64_t>("ro.product.first_api_level", 0);
+    LOG(INFO) << "Initial API level of the device" << api_level;
+    return api_level;
+}
+
 static std::string_view incFsPropertyValue() {
-    static const ab::NoDestructor<std::string> kValue{IncrementalProperties::enable().value_or("")};
+    constexpr const int R_API = 30;
+    static const auto kDefaultValue{getFirstApiLevel() > R_API ? "on" : ""};
+    static const ab::NoDestructor<std::string> kValue{
+            IncrementalProperties::enable().value_or(kDefaultValue)};
     return *kValue;
 }
 
