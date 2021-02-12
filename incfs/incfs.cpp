@@ -118,7 +118,7 @@ static bool isFsAvailable() {
 
 static int getFirstApiLevel() {
     uint64_t api_level = android::base::GetUintProperty<uint64_t>("ro.product.first_api_level", 0);
-    LOG(INFO) << "Initial API level of the device" << api_level;
+    LOG(INFO) << "Initial API level of the device: " << api_level;
     return api_level;
 }
 
@@ -220,6 +220,8 @@ bool IncFs_IsEnabled() {
 }
 
 static Features readIncFsFeatures() {
+    init().enabledAndReady();
+
     static const char kSysfsFeaturesDir[] = "/sys/fs/" INCFS_NAME "/features";
     const auto dir = path::openDir(kSysfsFeaturesDir);
     if (!dir) {
