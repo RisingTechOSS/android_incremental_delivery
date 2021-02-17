@@ -42,9 +42,9 @@ cc_defaults {
         "libbase",
         "libincfs",
         "liblog",
-        "libnativehelper",
         "libutils",
     ],
+    static_libs: ["libnativehelper_lazy"],
     tidy: true,
     tidy_checks: [
         "android-*",
