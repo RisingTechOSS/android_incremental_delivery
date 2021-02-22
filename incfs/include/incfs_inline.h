@@ -175,6 +175,10 @@ inline ErrorCode makeFile(const Control& control, std::string_view path, int mod
                           NewFileParams params) {
     return IncFs_MakeFile(control, details::c_str(path), mode, fileId, params);
 }
+inline ErrorCode makeMappedFile(const Control& control, std::string_view path, int mode,
+                                NewMappedFileParams params) {
+    return IncFs_MakeMappedFile(control, details::c_str(path), mode, params);
+}
 inline ErrorCode makeDir(const Control& control, std::string_view path, int mode) {
     return IncFs_MakeDir(control, details::c_str(path), mode);
 }
