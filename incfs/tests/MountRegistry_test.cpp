@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include "MountRegistry.h"
+
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
@@ -21,10 +23,11 @@
 #include <sys/select.h>
 #include <unistd.h>
 
+#include <iterator>
 #include <optional>
 #include <thread>
 
-#include "MountRegistry.h"
+#include "incfs.h"
 #include "path.h"
 
 using namespace android::incfs;
@@ -77,4 +80,64 @@ TEST_F(MountRegistryTest, MultiBind) {
     ASSERT_EQ(std::pair("/root"sv, "2/3"s), r().rootAndSubpathFor("/bind2"));
     ASSERT_EQ(std::pair("/root"sv, "2/3/blah"s), r().rootAndSubpathFor("/bind2/blah"));
     ASSERT_EQ(std::pair("/root"sv, "2/3/blah"s), r().rootAndSubpathFor("/other/bind/blah"));
+}
+
+TEST_F(MountRegistryTest, MultiRoot) {
+    r().addRoot("/root", "/backing");
+    r().addBind("/root", "/bind");
+    ASSERT_STREQ("/root", r().rootFor("/root").data());
+    ASSERT_STREQ("/root", r().rootFor("/bind").data());
+    ASSERT_STREQ("/root", r().rootFor("/bind/2").data());
+}
+
+TEST_F(MountRegistryTest, MultiRootLoad) {
+    constexpr char mountsFile[] =
+            R"(4605 34 0:154 / /mnt/installer/0/0000000000000000000000000000CAFEF00D2019 rw,nosuid,nodev,noexec,noatime shared:45 master:43 - fuse /dev/fuse rw,lazytime,user_id=0,group_id=0,allow_other
+4561 35 0:154 / /mnt/androidwritable/0/0000000000000000000000000000CAFEF00D2019 rw,nosuid,nodev,noexec,noatime shared:44 master:43 - fuse /dev/fuse rw,lazytime,user_id=0,group_id=0,allow_other
+4560 99 0:154 / /storage/0000000000000000000000000000CAFEF00D2019 rw,nosuid,nodev,noexec,noatime master:43 - fuse /dev/fuse rw,lazytime,user_id=0,group_id=0,allow_other
+4650 30 0:44 /MyFiles /mnt/pass_through/0/0000000000000000000000000000CAFEF00D2019 rw,nosuid,nodev,noexec,relatime shared:31 - 9p media rw,sync,dirsync,access=client,trans=virtio
+3181 79 0:146 / /data/incremental/MT_data_app_vmdl703/mount rw,nosuid,nodev,noatime shared:46 - incremental-fs /data/incremental/MT_data_app_vmdl703/backing_store rw,seclabel,read_timeout_ms=10000,readahead=0
+3182 77 0:146 / /var/run/mount/data/mount/data/incremental/MT_data_app_vmdl703/mount rw,nosuid,nodev,noatime shared:46 - incremental-fs /data/incremental/MT_data_app_vmdl703/backing_store rw,seclabel,read_timeout_ms=10000,readahead=0
+)";
+
+    TemporaryFile f;
+    ASSERT_TRUE(android::base::WriteFully(f.fd, mountsFile, std::size(mountsFile) - 1));
+    ASSERT_EQ(0, lseek(f.fd, 0, SEEK_SET)); // rewind
+
+    MountRegistry::Mounts m;
+    ASSERT_TRUE(m.loadFrom(f.fd, INCFS_NAME));
+
+    EXPECT_EQ(size_t(1), m.size());
+    EXPECT_STREQ("/data/incremental/MT_data_app_vmdl703/mount",
+                 m.rootFor("/data/incremental/MT_data_app_vmdl703/mount/123/2").data());
+    EXPECT_STREQ("/data/incremental/MT_data_app_vmdl703/mount",
+                 m.rootFor("/var/run/mount/data/mount/data/incremental/MT_data_app_vmdl703/mount/"
+                           "some/thing")
+                         .data());
+}
+
+TEST_F(MountRegistryTest, MultiRootLoadReversed) {
+    constexpr char mountsFile[] =
+            R"(4605 34 0:154 / /mnt/installer/0/0000000000000000000000000000CAFEF00D2019 rw,nosuid,nodev,noexec,noatime shared:45 master:43 - fuse /dev/fuse rw,lazytime,user_id=0,group_id=0,allow_other
+4561 35 0:154 / /mnt/androidwritable/0/0000000000000000000000000000CAFEF00D2019 rw,nosuid,nodev,noexec,noatime shared:44 master:43 - fuse /dev/fuse rw,lazytime,user_id=0,group_id=0,allow_other
+4560 99 0:154 / /storage/0000000000000000000000000000CAFEF00D2019 rw,nosuid,nodev,noexec,noatime master:43 - fuse /dev/fuse rw,lazytime,user_id=0,group_id=0,allow_other
+4650 30 0:44 /MyFiles /mnt/pass_through/0/0000000000000000000000000000CAFEF00D2019 rw,nosuid,nodev,noexec,relatime shared:31 - 9p media rw,sync,dirsync,access=client,trans=virtio
+3182 77 0:146 / /var/run/mount/data/mount/data/incremental/MT_data_app_vmdl703/mount rw,nosuid,nodev,noatime shared:46 - incremental-fs /data/incremental/MT_data_app_vmdl703/backing_store rw,seclabel,read_timeout_ms=10000,readahead=0
+3181 79 0:146 / /data/incremental/MT_data_app_vmdl703/mount rw,nosuid,nodev,noatime shared:46 - incremental-fs /data/incremental/MT_data_app_vmdl703/backing_store rw,seclabel,read_timeout_ms=10000,readahead=0
+)";
+
+    TemporaryFile f;
+    ASSERT_TRUE(android::base::WriteFully(f.fd, mountsFile, std::size(mountsFile) - 1));
+    ASSERT_EQ(0, lseek(f.fd, 0, SEEK_SET)); // rewind
+
+    MountRegistry::Mounts m;
+    ASSERT_TRUE(m.loadFrom(f.fd, INCFS_NAME));
+
+    EXPECT_EQ(size_t(1), m.size());
+    EXPECT_STREQ("/data/incremental/MT_data_app_vmdl703/mount",
+                 m.rootFor("/data/incremental/MT_data_app_vmdl703/mount/123/2").data());
+    EXPECT_STREQ("/data/incremental/MT_data_app_vmdl703/mount",
+                 m.rootFor("/var/run/mount/data/mount/data/incremental/MT_data_app_vmdl703/mount/"
+                           "some/thing")
+                         .data());
 }
