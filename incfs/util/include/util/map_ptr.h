@@ -347,13 +347,13 @@ public:
     // Returns true if the elements are completely present; otherwise, returns false.
     template <typename T1 = T, NotVoid<T1> = 0, bool V1 = Verified, IsUnverified<V1> = 0>
     bool verify(size_t n = 1) const {
+        if (ptr_ == nullptr) {
+            return false;
+        }
+
 #ifdef __ANDROID__
         if (LIKELY(map_ == nullptr)) {
             return ptr_ != nullptr;
-        }
-
-        if (ptr_ == nullptr) {
-            return false;
         }
 
         const size_t verify_size = sizeof(T) * n;
