@@ -163,6 +163,21 @@ cc_test {
     require_root: true,
 }
 
+cc_benchmark {
+    name: "hardening-benchmark",
+    defaults: ["libincfs_defaults"],
+
+    srcs: [
+        "tests/hardening_benchmark.cpp",
+    ],
+    static_libs: [
+        "libziparchive_for_incfs",
+        "libutils",
+        "libincfs",
+        "libincfs-utils",
+    ],
+}
+
 cc_binary {
     name: "incfsdump",
     defaults: ["libincfs_defaults"],

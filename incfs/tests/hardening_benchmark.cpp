@@ -19,8 +19,8 @@
 #include <benchmark/benchmark.h>
 #include <unistd.h>
 
-#include "hardening/access.h"
-#include "hardening/signal_handling.h"
+#include "incfs_support/access.h"
+#include "incfs_support/signal_handling.h"
 #include "util/map_ptr.h"
 
 static std::unique_ptr<TemporaryFile> makeFile() {
@@ -53,7 +53,7 @@ static void TestSignal(benchmark::State& state) {
 
     int val = 0;
     for (auto _ : state) {
-        HANDLE_SIGBUS({ break; });
+        SCOPED_SIGBUS_HANDLER({ break; });
         val += *mapping->data();
     }
 }
@@ -100,7 +100,7 @@ static void TestAccess(benchmark::State& state) {
     auto mapping = android::base::MappedFile::FromFd(tmp->fd, 0, 1, PROT_READ);
     int val = 0;
     for (auto _ : state) {
-        hardening::access(mapping->data(), [&](auto ptr) { val += *ptr; });
+        incfs::access(mapping->data(), [&](auto ptr) { val += *ptr; });
     }
 }
 BENCHMARK(TestAccess);
@@ -109,7 +109,7 @@ static void TestAccessFast(benchmark::State& state) {
     auto tmp = makeFile();
     auto mapping = android::base::MappedFile::FromFd(tmp->fd, 0, 1, PROT_READ);
     int val = 0;
-    hardening::access(mapping->data(), [&](auto ptr) {
+    incfs::access(mapping->data(), [&](auto ptr) {
         for (auto _ : state) {
             val += *ptr;
         }
@@ -122,7 +122,7 @@ static void TestAccessVal(benchmark::State& state) {
     auto mapping = android::base::MappedFile::FromFd(tmp->fd, 0, 1, PROT_READ);
     int val = 0;
     for (auto _ : state) {
-        hardening::access(mapping->data(), [&](auto ptr) { return val += *ptr; });
+        incfs::access(mapping->data(), [&](auto ptr) { return val += *ptr; });
     }
 }
 BENCHMARK(TestAccessVal);
@@ -131,9 +131,9 @@ static void TestAccessNested(benchmark::State& state) {
     auto tmp = makeFile();
     auto mapping = android::base::MappedFile::FromFd(tmp->fd, 0, 1, PROT_READ);
     int val = 0;
-    hardening::access(nullptr, [&](auto) {
+    incfs::access(nullptr, [&](auto) {
         for (auto _ : state) {
-            hardening::access(mapping->data(), [&](auto ptr) { val += *ptr; });
+            incfs::access(mapping->data(), [&](auto ptr) { val += *ptr; });
         }
     });
 }
@@ -143,10 +143,10 @@ static void TestAccessDoubleNested(benchmark::State& state) {
     auto tmp = makeFile();
     auto mapping = android::base::MappedFile::FromFd(tmp->fd, 0, 1, PROT_READ);
     int val = 0;
-    hardening::access(nullptr, [&](auto) {
-        hardening::access(nullptr, [&](auto) {
+    incfs::access(nullptr, [&](auto) {
+        incfs::access(nullptr, [&](auto) {
             for (auto _ : state) {
-                hardening::access(mapping->data(), [&](auto ptr) { val += *ptr; });
+                incfs::access(mapping->data(), [&](auto ptr) { val += *ptr; });
             }
         });
     });
@@ -157,7 +157,7 @@ static void TestAccessError(benchmark::State& state) {
     auto [tmp, mapping] = makeEmptyFileMapping();
     int val = 0;
     for (auto _ : state) {
-        hardening::access(mapping->data(), [&](auto ptr) { val += *ptr; });
+        incfs::access(mapping->data(), [&](auto ptr) { val += *ptr; });
     }
 }
 BENCHMARK(TestAccessError);
