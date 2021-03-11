@@ -35,8 +35,12 @@ namespace android::incfs {
 
 class MountRegistry final {
 public:
+    struct Bind {
+        std::string subdir;
+        int rootIndex;
+    };
     // std::less<> enables heterogeneous lookups, e.g. by a string_view
-    using BindMap = std::map<std::string, std::pair<std::string, int>, std::less<>>;
+    using BindMap = std::map<std::string, Bind, std::less<>>;
 
     class Mounts final {
         struct Root {
@@ -88,7 +92,6 @@ public:
         void addRoot(std::string_view root, std::string_view backingDir);
         void removeRoot(std::string_view root);
         void addBind(std::string_view what, std::string_view where);
-        void moveBind(std::string_view src, std::string_view dest);
         void removeBind(std::string_view what);
 
     private:
