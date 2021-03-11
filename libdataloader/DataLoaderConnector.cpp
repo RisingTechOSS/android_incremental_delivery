@@ -116,8 +116,6 @@ struct JniIds {
         constants.DATA_LOADER_UNRECOVERABLE =
                 GetStaticIntFieldValueOrDie(env, listener, "DATA_LOADER_UNRECOVERABLE");
 
-        CHECK(constants.DATA_LOADER_UNRECOVERABLE == DATA_LOADER_UNRECOVERABLE);
-
         auto packageInstaller = (jclass)FindClassOrDie(env, "android/content/pm/PackageInstaller");
 
         constants.DATA_LOADER_TYPE_NONE =
@@ -516,12 +514,20 @@ public:
     }
 
     bool reportStatus(DataLoaderStatus status) {
-        if (status < DATA_LOADER_FIRST_STATUS || DATA_LOADER_LAST_STATUS < status) {
-            ALOGE("Unable to report invalid status. status=%d", status);
-            return false;
-        }
         JNIEnv* env = GetOrAttachJNIEnvironment(mJvm);
-        return reportStatusViaCallback(env, mListener, mStorageId, status);
+        const auto& jni = jniIds(env);
+
+        jint osStatus;
+        switch (status) {
+            case DATA_LOADER_UNRECOVERABLE:
+                osStatus = jni.constants.DATA_LOADER_UNRECOVERABLE;
+                break;
+            default: {
+                ALOGE("Unable to report invalid status. status=%d", status);
+                return false;
+            }
+        }
+        return reportStatusViaCallback(env, mListener, mStorageId, osStatus);
     }
 
     bool checkAndClearJavaException(std::string_view method) const {
