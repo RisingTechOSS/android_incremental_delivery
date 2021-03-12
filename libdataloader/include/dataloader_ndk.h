@@ -24,12 +24,8 @@ __BEGIN_DECLS
 
 #define DATALOADER_LIBRARY_NAME "libdataloader.so"
 
-// Keep in sync with IDataLoaderStatusListener.aidl
 typedef enum {
     DATA_LOADER_UNRECOVERABLE = 8,
-
-    DATA_LOADER_FIRST_STATUS = DATA_LOADER_UNRECOVERABLE,
-    DATA_LOADER_LAST_STATUS = DATA_LOADER_UNRECOVERABLE,
 } DataLoaderStatus;
 
 typedef enum {
