@@ -1084,3 +1084,16 @@ TEST_F(IncFsTest, GetBlockCountsHash) {
     EXPECT_EQ(3, counts.totalHashBlocks);
     EXPECT_EQ(2, counts.filledHashBlocks);
 }
+
+TEST_F(IncFsTest, ReserveSpace) {
+    auto size = makeFileWithHash(1);
+    ASSERT_GT(size, 0);
+
+    EXPECT_EQ(0, IncFs_ReserveSpace(control_, mountPath(test_file_name_).c_str(), size));
+    EXPECT_EQ(0, IncFs_ReserveSpace(control_, mountPath(test_file_name_).c_str(), 2 * size));
+    EXPECT_EQ(0, IncFs_ReserveSpace(control_, mountPath(test_file_name_).c_str(), 2 * size));
+    EXPECT_EQ(0,
+              IncFs_ReserveSpace(control_, mountPath(test_file_name_).c_str(), kTrimReservedSpace));
+    EXPECT_EQ(0,
+              IncFs_ReserveSpace(control_, mountPath(test_file_name_).c_str(), kTrimReservedSpace));
+}
