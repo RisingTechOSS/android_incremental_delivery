@@ -84,7 +84,7 @@ public:
         bool empty() const { return roots.empty(); }
 
         std::string_view rootFor(std::string_view path) const;
-        std::pair<std::string_view, std::string> rootAndSubpathFor(std::string_view path) const;
+        std::pair<const Root*, std::string> rootAndSubpathFor(std::string_view path) const;
 
         void swap(Mounts& other);
         void clear();
@@ -106,6 +106,14 @@ public:
 
     std::string rootFor(std::string_view path);
     std::pair<std::string, std::string> rootAndSubpathFor(std::string_view path);
+
+    struct Details {
+        std::string root;
+        std::string backing;
+        std::string subpath;
+    };
+    Details detailsFor(std::string_view path);
+
     Mounts copyMounts();
 
     void reload();
