@@ -1751,6 +1751,44 @@ IncFsErrorCode IncFs_WaitForFsWrittenBlocksChange(const IncFsControl* control, i
     return 0;
 }
 
+IncFsErrorCode IncFs_ReserveSpace(const IncFsControl* control, const char* path, IncFsSize size) {
+    if (!control || (size != kIncFsTrimReservedSpace && size < 0)) {
+        return -EINVAL;
+    }
+    const auto [pathRoot, backingRoot, subpath] = registry().detailsFor(path);
+    const auto root = rootForCmd(control->cmd);
+    if (root.empty() || root != pathRoot) {
+        return -EINVAL;
+    }
+    const auto backingPath = path::join(backingRoot, subpath);
+    auto fd = ab::unique_fd(::open(backingPath.c_str(), O_WRONLY | O_CLOEXEC));
+    if (fd < 0) {
+        return -errno;
+    }
+    struct stat st = {};
+    if (::fstat(fd.get(), &st)) {
+        return -errno;
+    }
+    if (size == kIncFsTrimReservedSpace) {
+        if (::ftruncate(fd.get(), st.st_size)) {
+            return -errno;
+        }
+    } else {
+        // Add 1.5% of the size for the hash tree and the blockmap, and some more blocks
+        // for fixed overhead.
+        // hash tree is ~33 bytes / page, and blockmap is 10 bytes / page
+        // no need to round to a page size as filesystems already do that.
+        const auto backingSize = IncFsSize(size * 1.015) + INCFS_DATA_FILE_BLOCK_SIZE * 8;
+        if (backingSize < st.st_size) {
+            return -EPERM;
+        }
+        if (::fallocate(fd.get(), FALLOC_FL_KEEP_SIZE, 0, backingSize)) {
+            return -errno;
+        }
+    }
+    return 0;
+}
+
 MountRegistry& android::incfs::defaultMountRegistry() {
     return registry();
 }

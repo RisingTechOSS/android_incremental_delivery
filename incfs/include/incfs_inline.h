@@ -419,6 +419,10 @@ inline std::optional<std::vector<UidReadTimeouts>> getUidReadTimeouts(const Cont
     return std::move(timeouts);
 }
 
+inline ErrorCode reserveSpace(const Control& control, std::string_view path, Size size) {
+    return IncFs_ReserveSpace(control, details::c_str(path), size);
+}
+
 } // namespace android::incfs
 
 inline bool operator==(const IncFsFileId& l, const IncFsFileId& r) {
