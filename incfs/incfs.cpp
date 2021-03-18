@@ -50,6 +50,7 @@
 #include <mutex>
 #include <optional>
 #include <string_view>
+#include <unordered_set>
 
 #include "MountRegistry.h"
 #include "path.h"
@@ -900,7 +901,7 @@ IncFsErrorCode IncFs_GetMetadataById(const IncFsControl* control, IncFsFileId fi
     if (root.empty()) {
         return -EINVAL;
     }
-    auto name = path::join(root, kIndexDir, toStringImpl(fileId));
+    auto name = path::join(root, INCFS_INDEX_NAME, toStringImpl(fileId));
     return getMetadata(details::c_str(name), buffer, bufferSize);
 }
 
@@ -963,7 +964,7 @@ IncFsErrorCode IncFs_GetSignatureById(const IncFsControl* control, IncFsFileId f
     if (root.empty()) {
         return -EINVAL;
     }
-    auto file = path::join(root, kIndexDir, toStringImpl(fileId));
+    auto file = path::join(root, INCFS_INDEX_NAME, toStringImpl(fileId));
     auto fd = openRaw(file);
     if (fd < 0) {
         return fd.get();
@@ -1208,7 +1209,7 @@ IncFsFd IncFs_OpenForSpecialOpsById(const IncFsControl* control, IncFsFileId id)
     if (root.empty()) {
         return -EINVAL;
     }
-    auto name = path::join(root, kIndexDir, toStringImpl(id));
+    auto name = path::join(root, INCFS_INDEX_NAME, toStringImpl(id));
     return openForSpecialOps(cmd, makeCommandPath(root, name).c_str());
 }
 
@@ -1475,6 +1476,98 @@ IncFsErrorCode IncFs_IsFullyLoaded(int fd) {
     return -ENODATA;
 }
 
+static IncFsErrorCode isEverythingLoadedV2(const IncFsControl* control) {
+    const auto root = rootForCmd(control->cmd);
+    if (root.empty()) {
+        return -EINVAL;
+    }
+    const auto dirPath = path::join(root, INCFS_INCOMPLETE_NAME);
+    const auto dir = path::openDir(dirPath.c_str());
+    if (!dir) {
+        return -EINVAL;
+    }
+    while (const auto entry = ::readdir(dir.get())) {
+        if (entry->d_type != DT_REG) {
+            continue;
+        }
+        // any file in this directory has to be incomplete
+        return -ENODATA;
+    }
+    return 0;
+}
+
+static bool isInternalEntry(dirent* entry) {
+    const auto name = std::string_view(entry->d_name);
+    switch (entry->d_type) {
+        case DT_REG:
+            return name == INCFS_PENDING_READS_FILENAME || name == INCFS_LOG_FILENAME ||
+                    name == INCFS_BLOCKS_WRITTEN_FILENAME;
+        case DT_DIR:
+            return name == INCFS_INDEX_NAME || name == INCFS_INCOMPLETE_NAME;
+    }
+    return false;
+}
+
+static IncFsErrorCode isEverythingLoadedSlow(const IncFsControl* control) {
+    auto root = rootForCmd(control->cmd);
+    if (root.empty()) {
+        return -EINVAL;
+    }
+    // no special API for this version of the driver, need to recurse and check each file separately
+    std::vector<std::string> todo{std::move(root)};
+    std::unordered_set<ino_t> knownNodes;
+    do {
+        const auto dirPath = std::move(todo.back());
+        todo.pop_back();
+        const auto dir = path::openDir(dirPath.c_str());
+        if (!dir) {
+            return -EINVAL;
+        }
+        while (const auto entry = ::readdir(dir.get())) {
+            if (isInternalEntry(entry)) {
+                continue;
+            }
+            if (knownNodes.find(entry->d_ino) != knownNodes.end()) {
+                continue;
+            }
+            if (entry->d_type == DT_DIR) {
+                todo.emplace_back(path::join(dirPath, entry->d_name));
+            } else if (entry->d_type != DT_REG) {
+                continue; // no idea what this entry is, but don't care either
+            } else {
+                auto name = path::join(dirPath, entry->d_name);
+                auto fd = ab::unique_fd(openForSpecialOps(control->cmd, name.c_str()));
+                if (fd.get() < 0) {
+                    PLOG(WARNING) << "Can't open " << entry->d_name << " for special ops";
+                    return fd.release();
+                }
+                auto checkFullyLoaded = IncFs_IsFullyLoaded(fd.get());
+                if (checkFullyLoaded == 0 || checkFullyLoaded == -EOPNOTSUPP ||
+                    checkFullyLoaded == -ENOTSUP || checkFullyLoaded == -ENOENT) {
+                    // special kinds of files may return an error here, but it still means
+                    // _this_ file is OK - you simply need to check the rest. E.g. can't query
+                    // a mapped file, instead need to check its parent.
+                    knownNodes.insert(entry->d_ino);
+                    continue;
+                }
+                return checkFullyLoaded;
+            }
+        }
+    } while (!todo.empty());
+
+    return 0;
+}
+
+IncFsErrorCode IncFs_IsEverythingFullyLoaded(const IncFsControl* control) {
+    if (!control) {
+        return -EINVAL;
+    }
+    if (features() & Features::v2) {
+        return isEverythingLoadedV2(control);
+    }
+    return isEverythingLoadedSlow(control);
+}
+
 IncFsErrorCode IncFs_SetUidReadTimeouts(const IncFsControl* control,
                                         const IncFsUidReadTimeouts timeouts[], size_t count) {
     if (!control) {
@@ -1561,7 +1654,7 @@ IncFsErrorCode IncFs_GetFileBlockCountById(const IncFsControl* control, IncFsFil
     if (root.empty()) {
         return -EINVAL;
     }
-    auto name = path::join(root, kIndexDir, toStringImpl(id));
+    auto name = path::join(root, INCFS_INDEX_NAME, toStringImpl(id));
     auto fd = openRaw(name);
     if (fd < 0) {
         return fd.get();
@@ -1601,7 +1694,7 @@ IncFsErrorCode IncFs_ListIncompleteFiles(const IncFsControl* control, IncFsFileI
     if (root.empty()) {
         return -EINVAL;
     }
-    auto dirPath = path::join(root, kIncompleteDir);
+    auto dirPath = path::join(root, INCFS_INCOMPLETE_NAME);
     auto dir = path::openDir(dirPath.c_str());
     if (!dir) {
         return -EINVAL;
@@ -1647,7 +1740,7 @@ IncFsErrorCode IncFs_WaitForLoadingComplete(const IncFsControl* control, int32_t
     }
 
     // first create all the watches, and only then list existing files to prevent races
-    auto dirPath = path::join(root, kIncompleteDir);
+    auto dirPath = path::join(root, INCFS_INCOMPLETE_NAME);
     int watchFd = inotify_add_watch(fd.get(), dirPath.c_str(), IN_DELETE);
     if (watchFd < 0) {
         return -errno;

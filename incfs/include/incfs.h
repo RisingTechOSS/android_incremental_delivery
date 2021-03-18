@@ -263,6 +263,7 @@ WaitResult waitForLoadingComplete(const Control& control, std::chrono::milliseco
 
 enum class LoadingState { Full, MissingBlocks };
 LoadingState isFullyLoaded(int fd);
+LoadingState isEverythingFullyLoaded(const Control& control);
 
 static const auto kTrimReservedSpace = kIncFsTrimReservedSpace;
 ErrorCode reserveSpace(const Control& control, std::string_view path, Size size);

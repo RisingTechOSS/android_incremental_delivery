@@ -276,6 +276,12 @@ IncFsErrorCode IncFs_GetFilledRangesStartingFrom(int fd, int startBlockIndex, In
 //  <0       - error from the syscall.
 IncFsErrorCode IncFs_IsFullyLoaded(int fd);
 
+// Check if all files on the mount are fully loaded. Return codes:
+//  0        - fully loaded,
+//  -ENODATA - some blocks are missing,
+//  <0       - error from the syscall.
+IncFsErrorCode IncFs_IsEverythingFullyLoaded(const IncFsControl* control);
+
 // Reserve |size| bytes for the file. Trims reserved space to the current file size when |size = -1|
 static const IncFsSize kIncFsTrimReservedSpace = -1;
 IncFsErrorCode IncFs_ReserveSpace(const IncFsControl* control, const char* path, IncFsSize size);
