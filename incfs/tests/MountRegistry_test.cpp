@@ -75,11 +75,16 @@ TEST_F(MountRegistryTest, MultiBind) {
     ASSERT_STREQ("/root", r().rootFor("/bind").data());
     ASSERT_STREQ("/root", r().rootFor("/bind2").data());
     ASSERT_STREQ("/root", r().rootFor("/other/bind/dir").data());
-    ASSERT_EQ(std::pair("/root"sv, ""s), r().rootAndSubpathFor("/root"));
-    ASSERT_EQ(std::pair("/root"sv, "1"s), r().rootAndSubpathFor("/bind"));
-    ASSERT_EQ(std::pair("/root"sv, "2/3"s), r().rootAndSubpathFor("/bind2"));
-    ASSERT_EQ(std::pair("/root"sv, "2/3/blah"s), r().rootAndSubpathFor("/bind2/blah"));
-    ASSERT_EQ(std::pair("/root"sv, "2/3/blah"s), r().rootAndSubpathFor("/other/bind/blah"));
+    ASSERT_EQ("/root"s, r().rootAndSubpathFor("/root").first->path);
+    ASSERT_EQ(""s, r().rootAndSubpathFor("/root").second);
+    ASSERT_EQ("/root"s, r().rootAndSubpathFor("/bind").first->path);
+    ASSERT_EQ("1"s, r().rootAndSubpathFor("/bind").second);
+    ASSERT_EQ("/root"s, r().rootAndSubpathFor("/bind2").first->path);
+    ASSERT_EQ("2/3"s, r().rootAndSubpathFor("/bind2").second);
+    ASSERT_EQ("/root"s, r().rootAndSubpathFor("/bind2/blah").first->path);
+    ASSERT_EQ("2/3/blah"s, r().rootAndSubpathFor("/bind2/blah").second);
+    ASSERT_EQ("/root"s, r().rootAndSubpathFor("/other/bind/blah").first->path);
+    ASSERT_EQ("2/3/blah"s, r().rootAndSubpathFor("/other/bind/blah").second);
 }
 
 TEST_F(MountRegistryTest, MultiRoot) {

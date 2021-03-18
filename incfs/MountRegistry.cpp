@@ -113,8 +113,8 @@ std::string_view MountRegistry::Mounts::rootFor(std::string_view path) const {
     return roots[index].path;
 }
 
-std::pair<std::string_view, std::string> MountRegistry::Mounts::rootAndSubpathFor(
-        std::string_view path) const {
+auto MountRegistry::Mounts::rootAndSubpathFor(std::string_view path) const
+        -> std::pair<const Root*, std::string> {
     auto normalPath = path::normalize(path);
     auto [index, bindIt] = rootIndex(normalPath);
     if (index < 0) {
@@ -124,7 +124,7 @@ std::pair<std::string_view, std::string> MountRegistry::Mounts::rootAndSubpathFo
     const auto& bindSubdir = bindIt->second.subdir;
     const auto pastBindSubdir = path::relativize(bindIt->first, normalPath);
     const auto& root = roots[index];
-    return {root.path, path::join(bindSubdir, pastBindSubdir)};
+    return {&root, path::join(bindSubdir, pastBindSubdir)};
 }
 
 void MountRegistry::Mounts::addRoot(std::string_view root, std::string_view backingDir) {
@@ -216,10 +216,23 @@ std::string MountRegistry::rootFor(std::string_view path) {
     auto lock = ensureUpToDate();
     return std::string(mMounts.rootFor(path));
 }
+
+auto MountRegistry::detailsFor(std::string_view path) -> Details {
+    auto lock = ensureUpToDate();
+    auto [root, subpath] = mMounts.rootAndSubpathFor(path);
+    if (!root) {
+        return {};
+    }
+    return {root->path, root->backing, subpath};
+}
+
 std::pair<std::string, std::string> MountRegistry::rootAndSubpathFor(std::string_view path) {
     auto lock = ensureUpToDate();
     auto [root, subpath] = mMounts.rootAndSubpathFor(path);
-    return {std::string(root), std::move(subpath)};
+    if (!root) {
+        return {};
+    }
+    return {std::string(root->path), std::move(subpath)};
 }
 
 MountRegistry::Mounts MountRegistry::copyMounts() {
