@@ -28,9 +28,6 @@ constexpr char kIdAttrName[] = INCFS_XATTR_ID_NAME;
 constexpr char kSizeAttrName[] = INCFS_XATTR_SIZE_NAME;
 constexpr char kMetadataAttrName[] = INCFS_XATTR_METADATA_NAME;
 
-constexpr char kIndexDir[] = ".index";
-constexpr char kIncompleteDir[] = ".incomplete";
-
 namespace details {
 
 class CStrWrapper {
@@ -338,8 +335,7 @@ inline std::pair<ErrorCode, FilledRanges> getFilledRanges(int fd, FilledRanges&&
     return {res, FilledRanges(std::move(buffer), rawRanges)};
 }
 
-inline LoadingState isFullyLoaded(int fd) {
-    auto res = IncFs_IsFullyLoaded(fd);
+inline LoadingState toLoadingState(IncFsErrorCode res) {
     switch (res) {
         case 0:
             return LoadingState::Full;
@@ -348,6 +344,14 @@ inline LoadingState isFullyLoaded(int fd) {
         default:
             return LoadingState(res);
     }
+}
+
+inline LoadingState isFullyLoaded(int fd) {
+    return toLoadingState(IncFs_IsFullyLoaded(fd));
+}
+
+inline LoadingState isEverythingFullyLoaded(const Control& control) {
+    return toLoadingState(IncFs_IsEverythingFullyLoaded(control));
 }
 
 inline std::optional<std::vector<FileId>> listIncompleteFiles(const Control& control) {
