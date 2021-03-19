@@ -121,23 +121,19 @@ std::string fromFd(int fd) {
     snprintf(fdNameBuffer, std::size(fdNameBuffer), fdNameFormat, fd);
 
     std::string res;
-    // lstat() is supposed to return us exactly the needed buffer size, but
-    // somehow it may also return a smaller (but still >0) st_size field.
-    // That's why let's only use it for the initial estimate.
-    struct stat st = {};
-    if (::lstat(fdNameBuffer, &st) || st.st_size == 0) {
-        st.st_size = PATH_MAX;
-    }
-    auto bufSize = st.st_size;
+    // We used to call lstat() here to preallocate the buffer to the exact required size; turns out
+    // that call is significantly more expensive than anything else, so doing a couple extra
+    // iterations is worth the savings.
+    auto bufSize = 256;
     for (;;) {
-        res.resize(bufSize + 1, '\0');
+        res.resize(bufSize - 1, '\0');
         auto size = ::readlink(fdNameBuffer, &res[0], res.size());
         if (size < 0) {
             PLOG(ERROR) << "readlink failed for " << fdNameBuffer;
             return {};
         }
-        if (size > bufSize) {
-            // File got renamed in between lstat() and readlink() calls? Retry.
+        if (size >= ssize_t(res.size())) {
+            // can't tell if the name is exactly that long, or got truncated - just repeat the call.
             bufSize *= 2;
             continue;
         }
