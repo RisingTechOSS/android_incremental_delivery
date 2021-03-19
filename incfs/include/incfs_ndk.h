@@ -275,6 +275,8 @@ IncFsErrorCode IncFs_GetFilledRangesStartingFrom(int fd, int startBlockIndex, In
 //  -ENODATA - some blocks are missing,
 //  <0       - error from the syscall.
 IncFsErrorCode IncFs_IsFullyLoaded(int fd);
+IncFsErrorCode IncFs_IsFullyLoadedByPath(const IncFsControl* control, const char* path);
+IncFsErrorCode IncFs_IsFullyLoadedById(const IncFsControl* control, IncFsFileId fileId);
 
 // Check if all files on the mount are fully loaded. Return codes:
 //  0        - fully loaded,
