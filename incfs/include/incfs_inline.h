@@ -349,6 +349,12 @@ inline LoadingState toLoadingState(IncFsErrorCode res) {
 inline LoadingState isFullyLoaded(int fd) {
     return toLoadingState(IncFs_IsFullyLoaded(fd));
 }
+inline LoadingState isFullyLoaded(const Control& control, std::string_view path) {
+    return toLoadingState(IncFs_IsFullyLoadedByPath(control, details::c_str(path)));
+}
+inline LoadingState isFullyLoaded(const Control& control, FileId fileId) {
+    return toLoadingState(IncFs_IsFullyLoadedById(control, fileId));
+}
 
 inline LoadingState isEverythingFullyLoaded(const Control& control) {
     return toLoadingState(IncFs_IsEverythingFullyLoaded(control));
