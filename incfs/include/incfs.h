@@ -259,6 +259,12 @@ std::optional<BlockCounts> getBlockCount(const Control& control, FileId fileId);
 std::optional<BlockCounts> getBlockCount(const Control& control, std::string_view path);
 
 std::optional<std::vector<FileId>> listIncompleteFiles(const Control& control);
+
+template <class Callback>
+ErrorCode forEachFile(const Control& control, Callback&& cb);
+template <class Callback>
+ErrorCode forEachIncompleteFile(const Control& control, Callback&& cb);
+
 WaitResult waitForLoadingComplete(const Control& control, std::chrono::milliseconds timeout);
 
 enum class LoadingState { Full, MissingBlocks };
