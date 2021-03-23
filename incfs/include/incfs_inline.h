@@ -376,6 +376,30 @@ inline std::optional<std::vector<FileId>> listIncompleteFiles(const Control& con
     return std::move(ids);
 }
 
+template <class Callback>
+inline ErrorCode forEachFile(const Control& control, const Callback& cb) {
+    struct Context {
+        const Control& c;
+        const Callback& cb;
+    } context = {control, cb};
+    return IncFs_ForEachFile(control, &context, [](void* pcontext, const IncFsControl*, FileId id) {
+        const auto context = (Context*)pcontext;
+        return context->cb(context->control, id);
+    });
+}
+template <class Callback>
+inline ErrorCode forEachIncompleteFile(const Control& control, const Callback& cb) {
+    struct Context {
+        const Control& c;
+        const Callback& cb;
+    } context = {control, cb};
+    return IncFs_ForEachIncompleteFile(control, &context,
+                                       [](void* pcontext, const IncFsControl*, FileId id) {
+                                           const auto context = (Context*)pcontext;
+                                           return context->cb(context->control, id);
+                                       });
+}
+
 inline WaitResult waitForLoadingComplete(const Control& control,
                                          std::chrono::milliseconds timeout) {
     const auto res = IncFs_WaitForLoadingComplete(control, timeout.count());
