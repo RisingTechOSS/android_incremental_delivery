@@ -152,6 +152,29 @@ static std::pair<bool, std::string_view> parseProperty(std::string_view property
     return {false, {}};
 }
 
+template <class Callback>
+static IncFsErrorCode forEachFileIn(std::string_view dirPath, Callback cb) {
+    auto dir = path::openDir(details::c_str(dirPath));
+    if (!dir) {
+        return -EINVAL;
+    }
+
+    int res = 0;
+    while (auto entry = (errno = 0, ::readdir(dir.get()))) {
+        if (entry->d_type != DT_REG) {
+            continue;
+        }
+        ++res;
+        if (!cb(entry->d_name)) {
+            break;
+        }
+    }
+    if (errno) {
+        return -errno;
+    }
+    return res;
+}
+
 namespace {
 
 class IncFsInit {
@@ -245,7 +268,7 @@ static Features readIncFsFeatures() {
         }
     }
 
-    PLOG(INFO) << "IncFs_Features: " << ((res & Features::v2) ? "v2" : "v1");
+    LOG(INFO) << "IncFs_Features: " << ((res & Features::v2) ? "v2" : "v1");
 
     return Features(res);
 }
@@ -1550,19 +1573,8 @@ static IncFsErrorCode isEverythingLoadedV2(const IncFsControl* control) {
     if (root.empty()) {
         return -EINVAL;
     }
-    const auto dirPath = path::join(root, INCFS_INCOMPLETE_NAME);
-    const auto dir = path::openDir(dirPath.c_str());
-    if (!dir) {
-        return -EINVAL;
-    }
-    while (const auto entry = ::readdir(dir.get())) {
-        if (entry->d_type != DT_REG) {
-            continue;
-        }
-        // any file in this directory has to be incomplete
-        return -ENODATA;
-    }
-    return 0;
+    auto res = forEachFileIn(path::join(root, INCFS_INCOMPLETE_NAME), [](auto) { return false; });
+    return res < 0 ? res : res > 0 ? -ENODATA : 0;
 }
 
 static IncFsErrorCode isEverythingLoadedSlow(const IncFsControl* control) {
@@ -1738,28 +1750,52 @@ IncFsErrorCode IncFs_ListIncompleteFiles(const IncFsControl* control, IncFsFileI
     if (root.empty()) {
         return -EINVAL;
     }
-    auto dirPath = path::join(root, INCFS_INCOMPLETE_NAME);
-    auto dir = path::openDir(dirPath.c_str());
-    if (!dir) {
-        return -EINVAL;
-    }
-
-    int res = 0;
     size_t index = 0;
-    while (auto entry = ::readdir(dir.get())) {
-        if (entry->d_type != DT_REG) {
-            continue;
-        }
+    int error = 0;
+    const auto res = forEachFileIn(path::join(root, INCFS_INCOMPLETE_NAME), [&](const char* name) {
         if (index >= *bufferSize) {
-            res = -E2BIG;
+            error = -E2BIG;
         } else {
-            ids[index] = IncFs_FileIdFromString(entry->d_name);
+            ids[index] = IncFs_FileIdFromString(name);
         }
         ++index;
+        return true;
+    });
+    if (res < 0) {
+        return res;
     }
-
     *bufferSize = index;
-    return res;
+    return error ? error : 0;
+}
+
+IncFsErrorCode IncFs_ForEachFile(const IncFsControl* control, void* context, FileCallback cb) {
+    if (!control || !cb) {
+        return -EINVAL;
+    }
+    const auto root = rootForCmd(control->cmd);
+    if (root.empty()) {
+        return -EINVAL;
+    }
+    return forEachFileIn(path::join(root, INCFS_INDEX_NAME), [&](const char* name) {
+        return cb(context, control, IncFs_FileIdFromString(name));
+    });
+}
+
+IncFsErrorCode IncFs_ForEachIncompleteFile(const IncFsControl* control, void* context,
+                                           FileCallback cb) {
+    if (!control || !cb) {
+        return -EINVAL;
+    }
+    if (!(features() & Features::v2)) {
+        return -ENOTSUP;
+    }
+    const auto root = rootForCmd(control->cmd);
+    if (root.empty()) {
+        return -EINVAL;
+    }
+    return forEachFileIn(path::join(root, INCFS_INCOMPLETE_NAME), [&](const char* name) {
+        return cb(context, control, IncFs_FileIdFromString(name));
+    });
 }
 
 IncFsErrorCode IncFs_WaitForLoadingComplete(const IncFsControl* control, int32_t timeoutMs) {
@@ -1915,7 +1951,7 @@ IncFsErrorCode IncFs_ReserveSpace(const IncFsControl* control, const char* path,
         // for fixed overhead.
         // hash tree is ~33 bytes / page, and blockmap is 10 bytes / page
         // no need to round to a page size as filesystems already do that.
-        const auto backingSize = IncFsSize(size * 1.015) + INCFS_DATA_FILE_BLOCK_SIZE * 8;
+        const auto backingSize = IncFsSize(size * 1.015) + INCFS_DATA_FILE_BLOCK_SIZE * 4;
         if (backingSize < st.st_size) {
             return -EPERM;
         }
