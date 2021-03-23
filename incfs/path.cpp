@@ -145,13 +145,14 @@ std::string fromFd(int fd) {
     }
 }
 
-static void preparePathComponent(std::string_view& path, bool trimFront) {
-    if (trimFront) {
-        while (!path.empty() && path.front() == '/') {
-            path.remove_prefix(1);
-        }
+static void preparePathComponent(std::string_view& path, bool trimAll) {
+    // need to check for double front slash as a single one has a separate meaning in front
+    while (!path.empty() && path.front() == '/' &&
+           (trimAll || (path.size() > 1 && path[1] == '/'))) {
+        path.remove_prefix(1);
     }
-    while (!path.empty() && path.back() == '/') {
+    // for the back we don't care about double-vs-single slash difference
+    while (path.size() > !trimAll && path.back() == '/') {
         path.remove_suffix(1);
     }
 }
@@ -174,7 +175,7 @@ std::string_view relativize(std::string_view parent, std::string_view nested) {
 }
 
 void details::appendNextPath(std::string& res, std::string_view path) {
-    preparePathComponent(path, true);
+    preparePathComponent(path, !res.empty());
     if (path.empty()) {
         return;
     }
