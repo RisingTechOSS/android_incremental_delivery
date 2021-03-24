@@ -275,6 +275,7 @@ LoadingState isEverythingFullyLoaded(const Control& control);
 
 static const auto kTrimReservedSpace = kIncFsTrimReservedSpace;
 ErrorCode reserveSpace(const Control& control, std::string_view path, Size size);
+ErrorCode reserveSpace(const Control& control, FileId id, Size size);
 
 // Some internal secret API as well that's not backed by C API yet.
 class MountRegistry;
