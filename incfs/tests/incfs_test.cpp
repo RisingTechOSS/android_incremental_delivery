@@ -1094,13 +1094,24 @@ TEST_F(IncFsTest, ReserveSpace) {
     auto size = makeFileWithHash(1);
     ASSERT_GT(size, 0);
 
-    EXPECT_EQ(0, IncFs_ReserveSpace(control_, mountPath(test_file_name_).c_str(), size));
-    EXPECT_EQ(0, IncFs_ReserveSpace(control_, mountPath(test_file_name_).c_str(), 2 * size));
-    EXPECT_EQ(0, IncFs_ReserveSpace(control_, mountPath(test_file_name_).c_str(), 2 * size));
+    EXPECT_EQ(-ENOENT,
+              IncFs_ReserveSpaceByPath(control_, mountPath("1"s += test_file_name_).c_str(), size));
+    EXPECT_EQ(0, IncFs_ReserveSpaceByPath(control_, mountPath(test_file_name_).c_str(), size));
+    EXPECT_EQ(0, IncFs_ReserveSpaceByPath(control_, mountPath(test_file_name_).c_str(), 2 * size));
+    EXPECT_EQ(0, IncFs_ReserveSpaceByPath(control_, mountPath(test_file_name_).c_str(), 2 * size));
     EXPECT_EQ(0,
-              IncFs_ReserveSpace(control_, mountPath(test_file_name_).c_str(), kTrimReservedSpace));
+              IncFs_ReserveSpaceByPath(control_, mountPath(test_file_name_).c_str(),
+                                       kTrimReservedSpace));
     EXPECT_EQ(0,
-              IncFs_ReserveSpace(control_, mountPath(test_file_name_).c_str(), kTrimReservedSpace));
+              IncFs_ReserveSpaceByPath(control_, mountPath(test_file_name_).c_str(),
+                                       kTrimReservedSpace));
+
+    EXPECT_EQ(-ENOENT, IncFs_ReserveSpaceById(control_, fileId(2), size));
+    EXPECT_EQ(0, IncFs_ReserveSpaceById(control_, fileId(1), size));
+    EXPECT_EQ(0, IncFs_ReserveSpaceById(control_, fileId(1), 2 * size));
+    EXPECT_EQ(0, IncFs_ReserveSpaceById(control_, fileId(1), 2 * size));
+    EXPECT_EQ(0, IncFs_ReserveSpaceById(control_, fileId(1), kTrimReservedSpace));
+    EXPECT_EQ(0, IncFs_ReserveSpaceById(control_, fileId(1), kTrimReservedSpace));
 }
 
 TEST_F(IncFsTest, ForEachFile) {
