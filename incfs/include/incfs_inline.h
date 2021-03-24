@@ -377,18 +377,18 @@ inline std::optional<std::vector<FileId>> listIncompleteFiles(const Control& con
 }
 
 template <class Callback>
-inline ErrorCode forEachFile(const Control& control, const Callback& cb) {
+inline ErrorCode forEachFile(const Control& control, Callback&& cb) {
     struct Context {
         const Control& c;
         const Callback& cb;
     } context = {control, cb};
     return IncFs_ForEachFile(control, &context, [](void* pcontext, const IncFsControl*, FileId id) {
         const auto context = (Context*)pcontext;
-        return context->cb(context->control, id);
+        return context->cb(context->c, id);
     });
 }
 template <class Callback>
-inline ErrorCode forEachIncompleteFile(const Control& control, const Callback& cb) {
+inline ErrorCode forEachIncompleteFile(const Control& control, Callback&& cb) {
     struct Context {
         const Control& c;
         const Callback& cb;
@@ -396,7 +396,7 @@ inline ErrorCode forEachIncompleteFile(const Control& control, const Callback& c
     return IncFs_ForEachIncompleteFile(control, &context,
                                        [](void* pcontext, const IncFsControl*, FileId id) {
                                            const auto context = (Context*)pcontext;
-                                           return context->cb(context->control, id);
+                                           return context->cb(context->c, id);
                                        });
 }
 
@@ -454,7 +454,10 @@ inline std::optional<std::vector<UidReadTimeouts>> getUidReadTimeouts(const Cont
 }
 
 inline ErrorCode reserveSpace(const Control& control, std::string_view path, Size size) {
-    return IncFs_ReserveSpace(control, details::c_str(path), size);
+    return IncFs_ReserveSpaceByPath(control, details::c_str(path), size);
+}
+inline ErrorCode reserveSpace(const Control& control, FileId id, Size size) {
+    return IncFs_ReserveSpaceById(control, id, size);
 }
 
 } // namespace android::incfs

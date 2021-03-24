@@ -1924,17 +1924,8 @@ IncFsErrorCode IncFs_WaitForFsWrittenBlocksChange(const IncFsControl* control, i
     return 0;
 }
 
-IncFsErrorCode IncFs_ReserveSpace(const IncFsControl* control, const char* path, IncFsSize size) {
-    if (!control || (size != kIncFsTrimReservedSpace && size < 0)) {
-        return -EINVAL;
-    }
-    const auto [pathRoot, backingRoot, subpath] = registry().detailsFor(path);
-    const auto root = rootForCmd(control->cmd);
-    if (root.empty() || root != pathRoot) {
-        return -EINVAL;
-    }
-    const auto backingPath = path::join(backingRoot, subpath);
-    auto fd = ab::unique_fd(::open(backingPath.c_str(), O_WRONLY | O_CLOEXEC));
+static IncFsErrorCode reserveSpace(const char* backingPath, IncFsSize size) {
+    auto fd = ab::unique_fd(::open(backingPath, O_WRONLY | O_CLOEXEC));
     if (fd < 0) {
         return -errno;
     }
@@ -1960,6 +1951,35 @@ IncFsErrorCode IncFs_ReserveSpace(const IncFsControl* control, const char* path,
         }
     }
     return 0;
+}
+
+IncFsErrorCode IncFs_ReserveSpaceByPath(const IncFsControl* control, const char* path,
+                                        IncFsSize size) {
+    if (!control || (size != kIncFsTrimReservedSpace && size < 0)) {
+        return -EINVAL;
+    }
+    const auto [pathRoot, backingRoot, subpath] = registry().detailsFor(path);
+    const auto root = rootForCmd(control->cmd);
+    if (root.empty() || root != pathRoot) {
+        return -EINVAL;
+    }
+    return reserveSpace(path::join(backingRoot, subpath).c_str(), size);
+}
+
+IncFsErrorCode IncFs_ReserveSpaceById(const IncFsControl* control, IncFsFileId id, IncFsSize size) {
+    if (!control || (size != kIncFsTrimReservedSpace && size < 0)) {
+        return -EINVAL;
+    }
+    const auto root = rootForCmd(control->cmd);
+    if (root.empty()) {
+        return -EINVAL;
+    }
+    auto path = indexPath(root, id);
+    const auto [pathRoot, backingRoot, subpath] = registry().detailsFor(path);
+    if (root != pathRoot) {
+        return -EINVAL;
+    }
+    return reserveSpace(path::join(backingRoot, subpath).c_str(), size);
 }
 
 MountRegistry& android::incfs::defaultMountRegistry() {
