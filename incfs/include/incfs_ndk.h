@@ -297,7 +297,9 @@ IncFsErrorCode IncFs_IsEverythingFullyLoaded(const IncFsControl* control);
 
 // Reserve |size| bytes for the file. Trims reserved space to the current file size when |size = -1|
 static const IncFsSize kIncFsTrimReservedSpace = -1;
-IncFsErrorCode IncFs_ReserveSpace(const IncFsControl* control, const char* path, IncFsSize size);
+IncFsErrorCode IncFs_ReserveSpaceByPath(const IncFsControl* control, const char* path,
+                                        IncFsSize size);
+IncFsErrorCode IncFs_ReserveSpaceById(const IncFsControl* control, IncFsFileId id, IncFsSize size);
 
 __END_DECLS
 
