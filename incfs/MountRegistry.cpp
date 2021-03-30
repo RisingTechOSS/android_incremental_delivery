@@ -327,21 +327,22 @@ bool MountRegistry::Mounts::loadFrom(base::borrowed_fd fd, std::string_view file
         }
         const auto groupId = items[2];
         auto subdir = items[3];
+        auto backingDir = items.rbegin()[1];
         auto mountPoint = std::string(items[4]);
         fixProcPath(mountPoint);
         mountPoint = path::normalize(mountPoint);
         auto& mount = mountsByGroup[std::string(groupId)];
+        if (mount.backing.empty()) {
+            mount.backing.assign(backingDir);
+        } else if (mount.backing != backingDir) {
+            LOG(WARNING) << "[incfs] root '" << *mount.roots.begin()
+                         << "' mounted in multiple places with different backing dirs, '"
+                         << mount.backing << "' vs new '" << backingDir
+                         << "'; updating to the new one";
+            mount.backing.assign(backingDir);
+        }
         if (subdir == "/"sv) {
             mount.roots.emplace(mountPoint);
-            const auto backingDir = items.rbegin()[1];
-            if (!mount.backing.empty() && mount.backing != backingDir) {
-                LOG(WARNING) << "[incfs] root '" << *mount.roots.begin()
-                             << "' mounted in multiple places with different backing dirs, '"
-                             << mount.backing << "' vs new '" << backingDir
-                             << "'; updating to the new one";
-            }
-            mount.backing.assign(backingDir);
-            fixProcPath(mount.backing);
             subdir = ""sv;
         }
         mount.bindPoints.emplace_back(std::string(subdir), std::move(mountPoint));
@@ -360,6 +361,14 @@ bool MountRegistry::Mounts::loadFrom(base::borrowed_fd fd, std::string_view file
 
     int index = 0;
     for (auto& [_, mount] : mountsByGroup) {
+        if (mount.roots.empty()) {
+            // the mount has no root, and without root we have no good way of accessing the
+            // control files - so the only valid reaction here is to ignore it
+            LOG(WARNING) << "[incfs] mount '" << mount.backing << "' has no root, but "
+                         << mount.bindPoints.size() << " bind(s), ignoring";
+            continue;
+        }
+
         Root& root = roots[index];
         auto& binds = root.binds;
         binds.reserve(mount.bindPoints.size());
@@ -369,12 +378,15 @@ bool MountRegistry::Mounts::loadFrom(base::borrowed_fd fd, std::string_view file
                               .first;
             binds.push_back(it);
         }
+        root.backing = std::move(mount.backing);
+        fixProcPath(root.backing);
+
         // a trick here: given that as of now we either have exactly one root, or the preferred one
         // is always at the front, let's pick that one here.
         root.path = std::move(mount.roots.extract(mount.roots.begin()).value());
-        root.backing = std::move(mount.backing);
         ++index;
     }
+    roots.resize(index);
 
     LOG(INFO) << "[incfs] Loaded " << filesystem << " mount info: " << roots.size()
               << " instances, " << rootByBindPoint.size() << " mount points";
