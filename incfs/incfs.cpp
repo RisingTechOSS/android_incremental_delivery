@@ -117,7 +117,9 @@ static bool isFsAvailable() {
     if (!ab::ReadFileToString(kProcFilesystems, &filesystems)) {
         return false;
     }
-    return filesystems.find("\t" INCFS_NAME "\n") != std::string::npos;
+    const auto result = filesystems.find("\t" INCFS_NAME "\n") != std::string::npos;
+    LOG(INFO) << "isFsAvailable: " << (result ? "true" : "false");
+    return result;
 }
 
 static int getFirstApiLevel() {
@@ -131,6 +133,7 @@ static std::string_view incFsPropertyValue() {
     static const auto kDefaultValue{getFirstApiLevel() > R_API ? "on" : ""};
     static const ab::NoDestructor<std::string> kValue{
             IncrementalProperties::enable().value_or(kDefaultValue)};
+    LOG(INFO) << "ro.incremental.enable: " << *kValue;
     return *kValue;
 }
 
