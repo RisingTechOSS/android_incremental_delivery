@@ -25,6 +25,7 @@ __BEGIN_DECLS
 #define DATALOADER_LIBRARY_NAME "libdataloader.so"
 
 typedef enum {
+    DATA_LOADER_UNAVAILABLE = 7,
     DATA_LOADER_UNRECOVERABLE = 8,
 } DataLoaderStatus;
 
