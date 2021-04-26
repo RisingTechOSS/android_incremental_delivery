@@ -527,6 +527,9 @@ public:
 
         jint osStatus;
         switch (status) {
+            case DATA_LOADER_UNAVAILABLE:
+                osStatus = jni.constants.DATA_LOADER_UNAVAILABLE;
+                break;
             case DATA_LOADER_UNRECOVERABLE:
                 osStatus = jni.constants.DATA_LOADER_UNRECOVERABLE;
                 break;
