@@ -209,6 +209,17 @@ const JniIds& jniIds(JNIEnv* env) {
     return ids;
 }
 
+bool checkAndClearJavaException(JNIEnv* env, std::string_view method) {
+    if (!env->ExceptionCheck()) {
+        return false;
+    }
+
+    LOG(ERROR) << "Java exception during DataLoader::" << method;
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    return true;
+}
+
 bool reportStatusViaCallback(JNIEnv* env, jobject listener, jint storageId, jint status) {
     if (listener == nullptr) {
         ALOGE("No listener object to talk to IncrementalService. "
@@ -400,9 +411,6 @@ public:
         CHECK(mDataLoader);
         bool result = !mDataLoader->onPrepareImage ||
                 mDataLoader->onPrepareImage(mDataLoader, addedFiles.data(), addedFiles.size());
-        if (checkAndClearJavaException(__func__)) {
-            result = false;
-        }
         return result;
     }
 
@@ -519,6 +527,9 @@ public:
 
         jint osStatus;
         switch (status) {
+            case DATA_LOADER_UNAVAILABLE:
+                osStatus = jni.constants.DATA_LOADER_UNAVAILABLE;
+                break;
             case DATA_LOADER_UNRECOVERABLE:
                 osStatus = jni.constants.DATA_LOADER_UNRECOVERABLE;
                 break;
@@ -532,15 +543,7 @@ public:
 
     bool checkAndClearJavaException(std::string_view method) const {
         JNIEnv* env = GetOrAttachJNIEnvironment(mJvm);
-
-        if (!env->ExceptionCheck()) {
-            return false;
-        }
-
-        LOG(ERROR) << "Java exception during DataLoader::" << method;
-        env->ExceptionDescribe();
-        env->ExceptionClear();
-        return true;
+        return ::checkAndClearJavaException(env, method);
     }
 
     const UniqueControl& control() const { return mControl; }
@@ -1014,6 +1017,12 @@ bool DataLoaderService_OnPrepareImage(JNIEnv* env, jint storageId, jobjectArray 
     bool result = dataLoaderConnector->onPrepareImage(addedFilesPair.ndkFiles());
 
     const auto& jni = jniIds(env);
+
+    if (checkAndClearJavaException(env, "onPrepareImage")) {
+        reportStatusViaCallback(env, listener, storageId, jni.constants.DATA_LOADER_UNAVAILABLE);
+        return false;
+    }
+
     reportStatusViaCallback(env, listener, storageId,
                             result ? jni.constants.DATA_LOADER_IMAGE_READY
                                    : jni.constants.DATA_LOADER_IMAGE_NOT_READY);
