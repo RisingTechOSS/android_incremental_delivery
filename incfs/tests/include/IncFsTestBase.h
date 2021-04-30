@@ -84,6 +84,32 @@ protected:
         return path::join(mount_dir_path_, std::forward<Paths>(paths)...);
     }
 
+    virtual int makeFileWithHash(int id) {
+        // calculate the required size for two leaf hash blocks
+        constexpr auto size =
+                (INCFS_DATA_FILE_BLOCK_SIZE / INCFS_MAX_HASH_SIZE + 1) * INCFS_DATA_FILE_BLOCK_SIZE;
+
+        // assemble a signature/hashing data for it
+        struct __attribute__((packed)) Signature {
+            uint32_t version = INCFS_SIGNATURE_VERSION;
+            uint32_t hashingSize = sizeof(hashing);
+            struct __attribute__((packed)) Hashing {
+                uint32_t algo = INCFS_HASH_TREE_SHA256;
+                uint8_t log2Blocksize = 12;
+                uint32_t saltSize = 0;
+                uint32_t rootHashSize = INCFS_MAX_HASH_SIZE;
+                char rootHash[INCFS_MAX_HASH_SIZE] = {};
+            } hashing;
+            uint32_t signingSize = 0;
+        } signature;
+
+        int res = makeFile(control_, mountPath(test_file_name_), 0555, fileId(id),
+                           {.size = size,
+                            .signature = {.data = (char*)&signature, .size = sizeof(signature)}});
+        EXPECT_EQ(0, res);
+        return res ? -1 : size;
+    }
+
     std::string mount_dir_path_;
     std::optional<TemporaryDir> tmp_dir_for_mount_;
     std::string image_dir_path_;
