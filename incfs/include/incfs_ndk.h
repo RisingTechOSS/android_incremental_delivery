@@ -179,6 +179,13 @@ typedef struct {
     uint64_t reserved1;
 } IncFsMetrics;
 
+typedef struct {
+    IncFsFileId id;
+    uint64_t timestampUs;
+    IncFsBlockIndex block;
+    uint32_t errorNo;
+} IncFsLastReadError;
+
 // All functions return -errno in case of failure.
 // All IncFsFd functions return >=0 in case of success.
 // All IncFsFileId functions return invalid IncFsFileId on error.
@@ -319,6 +326,18 @@ IncFsErrorCode IncFs_ReserveSpaceById(const IncFsControl* control, IncFsFileId i
 // =0       - success
 // <0       - -errno
 IncFsErrorCode IncFs_GetMetrics(const char* sysfsName, IncFsMetrics* metrics);
+
+// Gets information about the last read error of a mount.
+// Return codes:
+// =0       - success
+// <0       - -errno
+// When there is no read error, still returns success. Fields in IncFsLastReadError will be all 0.
+// Possible values of IncFsLastReadError.errorNo:
+//   -ETIME for read timeout;
+//   -EBADMSG for hash verification failure;
+//   Other negative values for other types of errors.
+IncFsErrorCode IncFs_GetLastReadError(const IncFsControl* control,
+                                      IncFsLastReadError* lastReadError);
 
 __END_DECLS
 
