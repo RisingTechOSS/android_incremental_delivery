@@ -45,32 +45,6 @@ protected:
         return {.data = sv.data(), .size = IncFsSize(sv.size())};
     }
 
-    int makeFileWithHash(int id) {
-        // calculate the required size for two leaf hash blocks
-        constexpr auto size =
-                (INCFS_DATA_FILE_BLOCK_SIZE / INCFS_MAX_HASH_SIZE + 1) * INCFS_DATA_FILE_BLOCK_SIZE;
-
-        // assemble a signature/hashing data for it
-        struct __attribute__((packed)) Signature {
-            uint32_t version = INCFS_SIGNATURE_VERSION;
-            uint32_t hashingSize = sizeof(hashing);
-            struct __attribute__((packed)) Hashing {
-                uint32_t algo = INCFS_HASH_TREE_SHA256;
-                uint8_t log2Blocksize = 12;
-                uint32_t saltSize = 0;
-                uint32_t rootHashSize = INCFS_MAX_HASH_SIZE;
-                char rootHash[INCFS_MAX_HASH_SIZE] = {};
-            } hashing;
-            uint32_t signingSize = 0;
-        } signature;
-
-        int res = makeFile(control_, mountPath(test_file_name_), 0555, fileId(id),
-                           {.size = size,
-                            .signature = {.data = (char*)&signature, .size = sizeof(signature)}});
-        EXPECT_EQ(0, res);
-        return res ? -1 : size;
-    }
-
     static int sizeToPages(int size) {
         return (size + INCFS_DATA_FILE_BLOCK_SIZE - 1) / INCFS_DATA_FILE_BLOCK_SIZE;
     }
@@ -1159,4 +1133,109 @@ TEST_F(IncFsTest, ForEachFile) {
                   EXPECT_EQ(self->fileId(2), id);
                   return true;
               }));
+}
+
+class IncFsGetLastReadErrorTest : public IncFsTestBase {
+protected:
+    virtual int32_t getReadTimeout() { return 0; }
+};
+
+TEST_F(IncFsGetLastReadErrorTest, noLastError) {
+    if (!(features() & Features::v2)) {
+        GTEST_SKIP() << "test not supported: IncFS is too old";
+        return;
+    }
+    IncFsLastReadError lastReadError = {.id = fileId(-1),
+                                        .timestampUs = static_cast<uint64_t>(-1),
+                                        .block = static_cast<IncFsBlockIndex>(-1),
+                                        .errorNo = static_cast<uint32_t>(-1)};
+    ASSERT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
+    // All fields should be zero
+    char zeros[16]{};
+    ASSERT_EQ(0, std::strcmp(lastReadError.id.data, zeros));
+    ASSERT_EQ(0, (int)lastReadError.timestampUs);
+    ASSERT_EQ(0, (int)lastReadError.block);
+    ASSERT_EQ(0, (int)lastReadError.errorNo);
+}
+
+TEST_F(IncFsGetLastReadErrorTest, lastErrorTimeOut) {
+    if (!(features() & Features::v2)) {
+        GTEST_SKIP() << "test not supported: IncFS is too old";
+        return;
+    }
+    const auto id = fileId(1);
+    ASSERT_EQ(0,
+              makeFile(control_, mountPath(test_file_name_), 0555, id,
+                       {.size = INCFS_DATA_FILE_BLOCK_SIZE}));
+
+    const auto file_path = mountPath(test_file_name_);
+    const android::base::unique_fd fd(open(file_path.c_str(), O_RDONLY | O_CLOEXEC | O_BINARY));
+    ASSERT_GE(fd.get(), 0);
+    // Read should timeout immediately
+    char buf[INCFS_DATA_FILE_BLOCK_SIZE];
+    ASSERT_FALSE(android::base::ReadFully(fd, buf, sizeof(buf)));
+    IncFsLastReadError lastReadError = {.id = fileId(-1),
+                                        .timestampUs = static_cast<uint64_t>(-1),
+                                        .block = static_cast<IncFsBlockIndex>(-1),
+                                        .errorNo = static_cast<uint32_t>(-1)};
+    ASSERT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
+    ASSERT_EQ(0, std::strcmp(lastReadError.id.data, id.data));
+    ASSERT_TRUE(lastReadError.timestampUs > 0);
+    ASSERT_EQ(0, (int)lastReadError.block);
+    ASSERT_EQ(-ETIME, (int)lastReadError.errorNo);
+}
+
+TEST_F(IncFsGetLastReadErrorTest, lastErrorHash) {
+    if (!(features() & Features::v2)) {
+        GTEST_SKIP() << "test not supported: IncFS is too old";
+        return;
+    }
+    auto size = makeFileWithHash(1);
+    ASSERT_GT(size, 0);
+    // Make data and hash mismatch
+    const auto id = fileId(1);
+    char data[INCFS_DATA_FILE_BLOCK_SIZE]{static_cast<char>(-1)};
+    char hashData[INCFS_DATA_FILE_BLOCK_SIZE]{};
+    auto wfd = openForSpecialOps(control_, id);
+    ASSERT_GE(wfd.get(), 0);
+    DataBlock blocks[] = {{
+                                  .fileFd = wfd.get(),
+                                  .pageIndex = 0,
+                                  .compression = INCFS_COMPRESSION_KIND_NONE,
+                                  .dataSize = INCFS_DATA_FILE_BLOCK_SIZE,
+                                  .data = data,
+                          },
+                          {
+                                  .fileFd = wfd.get(),
+                                  // first hash page
+                                  .pageIndex = 0,
+                                  .compression = INCFS_COMPRESSION_KIND_NONE,
+                                  .dataSize = INCFS_DATA_FILE_BLOCK_SIZE,
+                                  .kind = INCFS_BLOCK_KIND_HASH,
+                                  .data = hashData,
+                          },
+                          {
+                                  .fileFd = wfd.get(),
+                                  .pageIndex = 2,
+                                  .compression = INCFS_COMPRESSION_KIND_NONE,
+                                  .dataSize = INCFS_DATA_FILE_BLOCK_SIZE,
+                                  .kind = INCFS_BLOCK_KIND_HASH,
+                                  .data = hashData,
+                          }};
+    ASSERT_EQ((int)std::size(blocks), writeBlocks({blocks, std::size(blocks)}));
+    const auto file_path = mountPath(test_file_name_);
+    const android::base::unique_fd fd(open(file_path.c_str(), O_RDONLY | O_CLOEXEC | O_BINARY));
+    ASSERT_GE(fd.get(), 0);
+    // Read should fail at reading the first block due to hash failure
+    char buf[INCFS_DATA_FILE_BLOCK_SIZE];
+    ASSERT_FALSE(android::base::ReadFully(fd, buf, sizeof(buf)));
+    IncFsLastReadError lastReadError = {.id = fileId(-1),
+                                        .timestampUs = static_cast<uint64_t>(-1),
+                                        .block = static_cast<IncFsBlockIndex>(-1),
+                                        .errorNo = static_cast<uint32_t>(-1)};
+    ASSERT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
+    ASSERT_EQ(0, std::strcmp(lastReadError.id.data, id.data));
+    ASSERT_TRUE(lastReadError.timestampUs > 0);
+    ASSERT_EQ(0, (int)lastReadError.block);
+    ASSERT_EQ(-EBADMSG, (int)lastReadError.errorNo);
 }
