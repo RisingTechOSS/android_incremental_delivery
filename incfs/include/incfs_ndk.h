@@ -90,6 +90,7 @@ typedef struct {
     int32_t defaultReadTimeoutMs;
     int32_t readLogBufferPages;
     int32_t readLogDisableAfterTimeoutMs;
+    const char* sysfsName;
 } IncFsMountOptions;
 
 typedef enum {
@@ -165,6 +166,18 @@ typedef struct {
     uint32_t minPendingTimeUs;
     uint32_t maxPendingTimeUs;
 } IncFsUidReadTimeouts;
+
+typedef struct {
+    uint32_t readsDelayedMin;
+    uint64_t readsDelayedMinUs;
+    uint32_t readsDelayedPending;
+    uint64_t readsDelayedPendingUs;
+    uint32_t readsFailedHashVerification;
+    uint32_t readsFailedOther;
+    uint32_t readsFailedTimedOut;
+    uint64_t reserved;
+    uint64_t reserved1;
+} IncFsMetrics;
 
 // All functions return -errno in case of failure.
 // All IncFsFd functions return >=0 in case of success.
@@ -300,6 +313,12 @@ static const IncFsSize kIncFsTrimReservedSpace = -1;
 IncFsErrorCode IncFs_ReserveSpaceByPath(const IncFsControl* control, const char* path,
                                         IncFsSize size);
 IncFsErrorCode IncFs_ReserveSpaceById(const IncFsControl* control, IncFsFileId id, IncFsSize size);
+
+// Gets the metrics of a mount by specifying the corresponding sysfs subpath.
+// Return codes:
+// =0       - success
+// <0       - -errno
+IncFsErrorCode IncFs_GetMetrics(const char* sysfsName, IncFsMetrics* metrics);
 
 __END_DECLS
 

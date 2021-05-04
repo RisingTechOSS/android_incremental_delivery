@@ -365,7 +365,11 @@ static std::string makeMountOptionsString(IncFsMountOptions options) {
                             unsigned(options.readLogBufferPages < 0
                                              ? INCFS_DEFAULT_PAGE_READ_BUFFER_PAGES
                                              : options.readLogBufferPages),
-                            (features() & Features::v2) ? "report_uid," : "");
+                            (features() & Features::v2)
+                                    ? ab::StringPrintf("report_uid,sysfs_name=%s",
+                                                       options.sysfsName)
+                                              .c_str()
+                                    : "");
 }
 
 static IncFsControl* makeControl(const char* root) {
@@ -1983,6 +1987,61 @@ IncFsErrorCode IncFs_ReserveSpaceById(const IncFsControl* control, IncFsFileId i
         return -EINVAL;
     }
     return reserveSpace(path::join(backingRoot, subpath).c_str(), size);
+}
+
+template <class IntType>
+static int readIntFromFile(std::string_view rootDir, std::string_view subPath, IntType& result) {
+    std::string content;
+    if (!ab::ReadFileToString(path::join(rootDir, subPath), &content)) {
+        PLOG(ERROR) << "IncFs_GetMetrics: failed to read file: " << rootDir << "/" << subPath;
+        return -errno;
+    }
+    const auto res = std::from_chars(content.data(), content.data() + content.size(), result);
+    if (res.ec != std::errc()) {
+        return -static_cast<int>(res.ec);
+    }
+    return 0;
+}
+
+IncFsErrorCode IncFs_GetMetrics(const char* sysfsName, IncFsMetrics* metrics) {
+    const auto kSysfsMetricsDir =
+            ab::StringPrintf("/sys/fs/%s/instances/%s", INCFS_NAME, sysfsName);
+
+    int err;
+    if (err = readIntFromFile(kSysfsMetricsDir, "reads_delayed_min", metrics->readsDelayedMin);
+        err != 0) {
+        return err;
+    }
+    if (err = readIntFromFile(kSysfsMetricsDir, "reads_delayed_min_us", metrics->readsDelayedMinUs);
+        err != 0) {
+        return err;
+    }
+    if (err = readIntFromFile(kSysfsMetricsDir, "reads_delayed_pending",
+                              metrics->readsDelayedPending);
+        err != 0) {
+        return err;
+    }
+    if (err = readIntFromFile(kSysfsMetricsDir, "reads_delayed_pending_us",
+                              metrics->readsDelayedPendingUs);
+        err != 0) {
+        return err;
+    }
+    if (err = readIntFromFile(kSysfsMetricsDir, "reads_failed_hash_verification",
+                              metrics->readsFailedHashVerification);
+        err != 0) {
+        return err;
+    }
+    if (err = readIntFromFile(kSysfsMetricsDir, "reads_failed_other", metrics->readsFailedOther);
+        err != 0) {
+        return err;
+    }
+    if (err = readIntFromFile(kSysfsMetricsDir, "reads_failed_timed_out",
+                              metrics->readsFailedTimedOut);
+        err != 0) {
+        return err;
+    }
+
+    return 0;
 }
 
 MountRegistry& android::incfs::defaultMountRegistry() {
