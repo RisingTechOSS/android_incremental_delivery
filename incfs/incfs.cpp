@@ -2040,7 +2040,30 @@ IncFsErrorCode IncFs_GetMetrics(const char* sysfsName, IncFsMetrics* metrics) {
         err != 0) {
         return err;
     }
+    return 0;
+}
 
+IncFsErrorCode IncFs_GetLastReadError(const IncFsControl* control,
+                                      IncFsLastReadError* lastReadError) {
+    if (!control) {
+        return -EINVAL;
+    }
+    if (!(features() & Features::v2)) {
+        return -ENOTSUP;
+    }
+    incfs_get_last_read_error_args args = {};
+    auto res = ::ioctl(control->cmd, INCFS_IOC_GET_LAST_READ_ERROR, &args);
+    if (res < 0) {
+        PLOG(ERROR) << "[incfs] IncFs_GetLastReadError failed.";
+        return -errno;
+    }
+    *lastReadError = IncFsLastReadError{
+            .timestampUs = args.time_us_out,
+            .block = static_cast<IncFsBlockIndex>(args.page_out),
+            .errorNo = args.errno_out,
+    };
+    static_assert(sizeof(args.file_id_out.bytes) == sizeof(lastReadError->id.data));
+    memcpy(lastReadError->id.data, args.file_id_out.bytes, sizeof(args.file_id_out.bytes));
     return 0;
 }
 
