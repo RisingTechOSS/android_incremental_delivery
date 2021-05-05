@@ -460,6 +460,24 @@ inline ErrorCode reserveSpace(const Control& control, FileId id, Size size) {
     return IncFs_ReserveSpaceById(control, id, size);
 }
 
+inline std::optional<Metrics> getMetrics(std::string_view sysfsName) {
+    Metrics metrics;
+    if (const auto res = IncFs_GetMetrics(details::c_str(sysfsName), &metrics); res < 0) {
+        errno = -res;
+        return {};
+    }
+    return metrics;
+}
+
+inline std::optional<LastReadError> getLastReadError(const Control& control) {
+    LastReadError lastReadError;
+    if (const auto res = IncFs_GetLastReadError(control, &lastReadError); res < 0) {
+        errno = -res;
+        return {};
+    }
+    return lastReadError;
+}
+
 } // namespace android::incfs
 
 inline bool operator==(const IncFsFileId& l, const IncFsFileId& r) {
