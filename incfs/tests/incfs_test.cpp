@@ -1140,12 +1140,12 @@ TEST(CStrWrapperTest, EmptyStringView) {
     ASSERT_STREQ("", details::c_str({nullptr, 0}).get());
 }
 
-class IncFsGetLastReadErrorTest : public IncFsTestBase {
+class IncFsGetMetricsTest : public IncFsTestBase {
 protected:
-    virtual int32_t getReadTimeout() { return 0; }
+    int32_t getReadTimeout() override { return 100 /* 0.1 second */; }
 };
 
-TEST_F(IncFsGetLastReadErrorTest, noLastError) {
+TEST_F(IncFsGetMetricsTest, MetricsWithNoEvents) {
     if (!(features() & Features::v2)) {
         GTEST_SKIP() << "test not supported: IncFS is too old";
         return;
@@ -1154,16 +1154,25 @@ TEST_F(IncFsGetLastReadErrorTest, noLastError) {
                                         .timestampUs = static_cast<uint64_t>(-1),
                                         .block = static_cast<IncFsBlockIndex>(-1),
                                         .errorNo = static_cast<uint32_t>(-1)};
-    ASSERT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
+    EXPECT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
     // All fields should be zero
-    char zeros[16]{};
-    ASSERT_EQ(0, std::strcmp(lastReadError.id.data, zeros));
-    ASSERT_EQ(0, (int)lastReadError.timestampUs);
-    ASSERT_EQ(0, (int)lastReadError.block);
-    ASSERT_EQ(0, (int)lastReadError.errorNo);
+    EXPECT_EQ(FileId{}, lastReadError.id);
+    EXPECT_EQ(0, (int)lastReadError.timestampUs);
+    EXPECT_EQ(0, (int)lastReadError.block);
+    EXPECT_EQ(0, (int)lastReadError.errorNo);
+
+    IncFsMetrics incfsMetrics = {10, 10, 10, 10, 10, 10, 10, 10, 10};
+    EXPECT_EQ(0, IncFs_GetMetrics(metrics_key_.c_str(), &incfsMetrics));
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedMin);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedMinUs);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedPending);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedPendingUs);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedHashVerification);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedOther);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedTimedOut);
 }
 
-TEST_F(IncFsGetLastReadErrorTest, lastErrorTimeOut) {
+TEST_F(IncFsGetMetricsTest, MetricsWithReadsTimeOut) {
     if (!(features() & Features::v2)) {
         GTEST_SKIP() << "test not supported: IncFS is too old";
         return;
@@ -1178,19 +1187,29 @@ TEST_F(IncFsGetLastReadErrorTest, lastErrorTimeOut) {
     ASSERT_GE(fd.get(), 0);
     // Read should timeout immediately
     char buf[INCFS_DATA_FILE_BLOCK_SIZE];
-    ASSERT_FALSE(android::base::ReadFully(fd, buf, sizeof(buf)));
+    EXPECT_FALSE(android::base::ReadFully(fd, buf, sizeof(buf)));
     IncFsLastReadError lastReadError = {.id = fileId(-1),
                                         .timestampUs = static_cast<uint64_t>(-1),
                                         .block = static_cast<IncFsBlockIndex>(-1),
                                         .errorNo = static_cast<uint32_t>(-1)};
-    ASSERT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
-    ASSERT_EQ(0, std::strcmp(lastReadError.id.data, id.data));
-    ASSERT_TRUE(lastReadError.timestampUs > 0);
-    ASSERT_EQ(0, (int)lastReadError.block);
-    ASSERT_EQ(-ETIME, (int)lastReadError.errorNo);
+    EXPECT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
+    EXPECT_EQ(id, lastReadError.id);
+    EXPECT_TRUE(lastReadError.timestampUs > 0);
+    EXPECT_EQ(0, (int)lastReadError.block);
+    EXPECT_EQ(-ETIME, (int)lastReadError.errorNo);
+
+    IncFsMetrics incfsMetrics = {10, 10, 10, 10, 10, 10, 10, 10, 10};
+    EXPECT_EQ(0, IncFs_GetMetrics(metrics_key_.c_str(), &incfsMetrics));
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedMin);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedMinUs);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedPending);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedPendingUs);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedHashVerification);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedOther);
+    EXPECT_EQ(1, (int)incfsMetrics.readsFailedTimedOut);
 }
 
-TEST_F(IncFsGetLastReadErrorTest, lastErrorHash) {
+TEST_F(IncFsGetMetricsTest, MetricsWithHashFailure) {
     if (!(features() & Features::v2)) {
         GTEST_SKIP() << "test not supported: IncFS is too old";
         return;
@@ -1233,14 +1252,127 @@ TEST_F(IncFsGetLastReadErrorTest, lastErrorHash) {
     ASSERT_GE(fd.get(), 0);
     // Read should fail at reading the first block due to hash failure
     char buf[INCFS_DATA_FILE_BLOCK_SIZE];
-    ASSERT_FALSE(android::base::ReadFully(fd, buf, sizeof(buf)));
+    EXPECT_FALSE(android::base::ReadFully(fd, buf, sizeof(buf)));
     IncFsLastReadError lastReadError = {.id = fileId(-1),
                                         .timestampUs = static_cast<uint64_t>(-1),
                                         .block = static_cast<IncFsBlockIndex>(-1),
                                         .errorNo = static_cast<uint32_t>(-1)};
-    ASSERT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
-    ASSERT_EQ(0, std::strcmp(lastReadError.id.data, id.data));
-    ASSERT_TRUE(lastReadError.timestampUs > 0);
-    ASSERT_EQ(0, (int)lastReadError.block);
-    ASSERT_EQ(-EBADMSG, (int)lastReadError.errorNo);
+    EXPECT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
+    EXPECT_EQ(0, std::strcmp(lastReadError.id.data, id.data));
+    EXPECT_TRUE(lastReadError.timestampUs > 0);
+    EXPECT_EQ(0, (int)lastReadError.block);
+    EXPECT_EQ(-EBADMSG, (int)lastReadError.errorNo);
+
+    IncFsMetrics incfsMetrics = {10, 10, 10, 10, 10, 10, 10, 10, 10};
+    EXPECT_EQ(0, IncFs_GetMetrics(metrics_key_.c_str(), &incfsMetrics));
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedMin);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedMinUs);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedPending);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedPendingUs);
+    EXPECT_EQ(1, (int)incfsMetrics.readsFailedHashVerification);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedOther);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedTimedOut);
+}
+
+TEST_F(IncFsGetMetricsTest, MetricsWithReadsDelayed) {
+    if (!(features() & Features::v2)) {
+        GTEST_SKIP() << "test not supported: IncFS is too old";
+        return;
+    }
+    const auto id = fileId(1);
+    int testFileSize = INCFS_DATA_FILE_BLOCK_SIZE;
+    int waitBeforeWriteUs = 10000;
+    ASSERT_EQ(0, makeFile(control_, mountPath(test_file_name_), 0555, id, {.size = testFileSize}));
+    std::thread wait_before_write_thread([&]() {
+        std::vector<ReadInfoWithUid> pending_reads;
+        ASSERT_EQ(WaitResult::HaveData,
+                  waitForPendingReads(control_, std::chrono::seconds(1), &pending_reads));
+        // Additional wait is needed for the kernel jiffies counter to increment
+        usleep(waitBeforeWriteUs);
+        auto fd = openForSpecialOps(control_, fileId(1));
+        ASSERT_GE(fd.get(), 0);
+        std::vector<char> data(INCFS_DATA_FILE_BLOCK_SIZE);
+        auto block = DataBlock{
+                .fileFd = fd.get(),
+                .pageIndex = 0,
+                .compression = INCFS_COMPRESSION_KIND_NONE,
+                .dataSize = (uint32_t)data.size(),
+                .data = data.data(),
+        };
+        ASSERT_EQ(1, writeBlocks({&block, 1}));
+    });
+
+    const auto file_path = mountPath(test_file_name_);
+    const android::base::unique_fd fd(open(file_path.c_str(), O_RDONLY | O_CLOEXEC | O_BINARY));
+    ASSERT_GE(fd.get(), 0);
+    char buf[testFileSize];
+    EXPECT_TRUE(android::base::ReadFully(fd, buf, sizeof(buf)));
+    wait_before_write_thread.join();
+
+    IncFsLastReadError lastReadError = {.id = fileId(-1), 1, 1, 1};
+    EXPECT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
+    EXPECT_EQ(FileId{}, lastReadError.id);
+    EXPECT_EQ(0, (int)lastReadError.timestampUs);
+    EXPECT_EQ(0, (int)lastReadError.block);
+    EXPECT_EQ(0, (int)lastReadError.errorNo);
+
+    IncFsMetrics incfsMetrics = {10, 10, 10, 10, 10, 10, 10, 10, 10};
+    EXPECT_EQ(0, IncFs_GetMetrics(metrics_key_.c_str(), &incfsMetrics));
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedMin);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedMinUs);
+    EXPECT_EQ(1, (int)incfsMetrics.readsDelayedPending);
+    EXPECT_TRUE((int)incfsMetrics.readsDelayedPendingUs > 0);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedHashVerification);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedOther);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedTimedOut);
+}
+
+TEST_F(IncFsGetMetricsTest, MetricsWithReadsDelayedPerUidTimeout) {
+    if (!(features() & Features::v2)) {
+        GTEST_SKIP() << "test not supported: IncFS is too old";
+        return;
+    }
+    const auto id = fileId(1);
+    int testFileSize = INCFS_DATA_FILE_BLOCK_SIZE;
+    ASSERT_EQ(0, makeFile(control_, mountPath(test_file_name_), 0555, id, {.size = testFileSize}));
+
+    auto fdToFill = openForSpecialOps(control_, fileId(1));
+    ASSERT_GE(fdToFill.get(), 0);
+    std::vector<char> data(INCFS_DATA_FILE_BLOCK_SIZE);
+    auto block = DataBlock{
+            .fileFd = fdToFill.get(),
+            .pageIndex = 0,
+            .compression = INCFS_COMPRESSION_KIND_NONE,
+            .dataSize = (uint32_t)data.size(),
+            .data = data.data(),
+    };
+    ASSERT_EQ(1, writeBlocks({&block, 1}));
+
+    // Set per-uid read timeout then read
+    uint32_t readTimeoutUs = 1000000;
+    IncFsUidReadTimeouts timeouts[1] = {
+            {static_cast<IncFsUid>(getuid()), readTimeoutUs, readTimeoutUs, readTimeoutUs}};
+    ASSERT_EQ(0, IncFs_SetUidReadTimeouts(control_, timeouts, std::size(timeouts)));
+    const auto file_path = mountPath(test_file_name_);
+    const android::base::unique_fd fd(open(file_path.c_str(), O_RDONLY | O_CLOEXEC | O_BINARY));
+    char buf[testFileSize];
+    ASSERT_GE(fd.get(), 0);
+    ASSERT_TRUE(android::base::ReadFully(fd, buf, sizeof(buf)));
+
+    IncFsLastReadError lastReadError = {.id = fileId(-1), 1, 1, 1};
+    EXPECT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
+    EXPECT_EQ(FileId{}, lastReadError.id);
+    EXPECT_EQ(0, (int)lastReadError.timestampUs);
+    EXPECT_EQ(0, (int)lastReadError.block);
+    EXPECT_EQ(0, (int)lastReadError.errorNo);
+
+    IncFsMetrics incfsMetrics = {10, 10, 10, 10, 10, 10, 10, 10, 10};
+    EXPECT_EQ(0, IncFs_GetMetrics(metrics_key_.c_str(), &incfsMetrics));
+    EXPECT_EQ(1, (int)incfsMetrics.readsDelayedMin);
+    EXPECT_EQ(readTimeoutUs, (uint32_t)incfsMetrics.readsDelayedMinUs);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedPending);
+    EXPECT_EQ(0, (int)incfsMetrics.readsDelayedPendingUs);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedHashVerification);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedOther);
+    EXPECT_EQ(0, (int)incfsMetrics.readsFailedTimedOut);
 }
