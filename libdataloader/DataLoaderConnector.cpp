@@ -30,6 +30,7 @@
 #include "ManagedDataLoader.h"
 #include "dataloader.h"
 #include "incfs.h"
+#include "path.h"
 
 namespace {
 
@@ -757,15 +758,23 @@ bool DataLoaderService_OnCreate(JNIEnv* env, jobject service, jint storageId, jo
         }
     }
     auto nativeControl = createIncFsControlFromManaged(env, control);
-    ALOGI("DataLoader::create1 cmd: %d|%s", nativeControl.cmd(),
-          pathFromFd(nativeControl.cmd()).c_str());
-    ALOGI("DataLoader::create1 pendingReads: %d|%s", nativeControl.pendingReads(),
-          pathFromFd(nativeControl.pendingReads()).c_str());
-    ALOGI("DataLoader::create1 log: %d|%s", nativeControl.logs(),
-          pathFromFd(nativeControl.logs()).c_str());
+    if (nativeControl) {
+        using namespace android::incfs;
+        ALOGI("DataLoader::create incremental fds: %d/%d/%d/%d", nativeControl.cmd(),
+              nativeControl.pendingReads(), nativeControl.logs(), nativeControl.blocksWritten());
+        auto cmdPath = pathFromFd(nativeControl.cmd());
+        auto dir = path::dirName(cmdPath);
+        ALOGI("DataLoader::create incremental dir: %s, files: %s/%s/%s/%s",
+              details::c_str(dir).get(), details::c_str(path::baseName(cmdPath)).get(),
+              details::c_str(path::baseName(pathFromFd(nativeControl.pendingReads()))).get(),
+              details::c_str(path::baseName(pathFromFd(nativeControl.logs()))).get(),
+              details::c_str(path::baseName(pathFromFd(nativeControl.blocksWritten()))).get());
+    } else {
+        ALOGI("DataLoader::create no incremental control");
+    }
 
     auto nativeParams = DataLoaderParamsPair::createFromManaged(env, params);
-    ALOGI("DataLoader::create2: %d|%s|%s|%s", nativeParams.dataLoaderParams().type(),
+    ALOGI("DataLoader::create params: %d|%s|%s|%s", nativeParams.dataLoaderParams().type(),
           nativeParams.dataLoaderParams().packageName().c_str(),
           nativeParams.dataLoaderParams().className().c_str(),
           nativeParams.dataLoaderParams().arguments().c_str());
