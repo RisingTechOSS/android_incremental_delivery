@@ -185,41 +185,6 @@ void details::appendNextPath(std::string& res, std::string_view path) {
     res += path;
 }
 
-std::string_view baseName(std::string_view path) {
-    if (path.empty()) {
-        return {};
-    }
-    if (path == "/"sv) {
-        return "/"sv;
-    }
-    auto pos = path.rfind('/');
-    while (!path.empty() && pos == path.size() - 1) {
-        path.remove_suffix(1);
-        pos = path.rfind('/');
-    }
-    if (pos == path.npos) {
-        return path.empty() ? "/"sv : path;
-    }
-    return path.substr(pos + 1);
-}
-
-std::string_view dirName(std::string_view path) {
-    if (path.empty()) {
-        return {};
-    }
-    if (path == "/"sv) {
-        return "/"sv;
-    }
-    const auto pos = path.rfind('/');
-    if (pos == 0) {
-        return "/"sv;
-    }
-    if (pos == path.npos) {
-        return "."sv;
-    }
-    return path.substr(0, pos);
-}
-
 std::pair<std::string_view, std::string_view> splitDirBase(std::string& full) {
     auto res = std::pair(dirName(full), baseName(full));
     if (res.first.data() == full.data()) {
