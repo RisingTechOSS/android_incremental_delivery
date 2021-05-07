@@ -101,8 +101,10 @@ public:
     IncFsFd pendingReads() const;
     IncFsFd logs() const;
     IncFsFd blocksWritten() const;
-    operator IncFsControl*() const { return mControl; };
+
     void close();
+
+    operator IncFsControl*() const { return mControl; }
 
     using Fds = std::array<UniqueFd, IncFsFdType::FDS_COUNT>;
     [[nodiscard]] Fds releaseFds();
