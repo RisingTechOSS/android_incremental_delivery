@@ -360,16 +360,18 @@ static int rmDirContent(const char* path) {
 }
 
 static std::string makeMountOptionsString(IncFsMountOptions options) {
-    return ab::StringPrintf("read_timeout_ms=%u,readahead=0,rlog_pages=%u,rlog_wakeup_cnt=1,%s",
-                            unsigned(options.defaultReadTimeoutMs),
-                            unsigned(options.readLogBufferPages < 0
-                                             ? INCFS_DEFAULT_PAGE_READ_BUFFER_PAGES
-                                             : options.readLogBufferPages),
-                            (features() & Features::v2)
-                                    ? ab::StringPrintf("report_uid,sysfs_name=%s",
-                                                       options.sysfsName)
-                                              .c_str()
-                                    : "");
+    auto opts = ab::StringPrintf("read_timeout_ms=%u,readahead=0,rlog_pages=%u,rlog_wakeup_cnt=1,",
+                                 unsigned(options.defaultReadTimeoutMs),
+                                 unsigned(options.readLogBufferPages < 0
+                                                  ? INCFS_DEFAULT_PAGE_READ_BUFFER_PAGES
+                                                  : options.readLogBufferPages));
+    if (features() & Features::v2) {
+        ab::StringAppendF(&opts, "report_uid,");
+        if (options.sysfsName && *options.sysfsName) {
+            ab::StringAppendF(&opts, "sysfs_name=%s,", options.sysfsName);
+        }
+    }
+    return opts;
 }
 
 static IncFsControl* makeControl(const char* root) {
@@ -2004,6 +2006,10 @@ static int readIntFromFile(std::string_view rootDir, std::string_view subPath, I
 }
 
 IncFsErrorCode IncFs_GetMetrics(const char* sysfsName, IncFsMetrics* metrics) {
+    if (!sysfsName || !*sysfsName) {
+        return -EINVAL;
+    }
+
     const auto kSysfsMetricsDir =
             ab::StringPrintf("/sys/fs/%s/instances/%s", INCFS_NAME, sysfsName);
 
