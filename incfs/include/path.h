@@ -48,8 +48,43 @@ std::string_view relativize(std::string&& parent, std::string_view nested) = del
 std::string_view relativize(std::string_view parent, std::string&& nested) = delete;
 
 // Note: some system headers #define 'dirname' and 'basename' as macros
-std::string_view dirName(std::string_view path);
-std::string_view baseName(std::string_view path);
+
+inline std::string_view baseName(std::string_view path) {
+    using namespace std::literals;
+    if (path.empty()) {
+        return {};
+    }
+    if (path == "/"sv) {
+        return "/"sv;
+    }
+    auto pos = path.rfind('/');
+    while (!path.empty() && pos == path.size() - 1) {
+        path.remove_suffix(1);
+        pos = path.rfind('/');
+    }
+    if (pos == path.npos) {
+        return path.empty() ? "/"sv : path;
+    }
+    return path.substr(pos + 1);
+}
+
+inline std::string_view dirName(std::string_view path) {
+    using namespace std::literals;
+    if (path.empty()) {
+        return {};
+    }
+    if (path == "/"sv) {
+        return "/"sv;
+    }
+    const auto pos = path.rfind('/');
+    if (pos == 0) {
+        return "/"sv;
+    }
+    if (pos == path.npos) {
+        return "."sv;
+    }
+    return path.substr(0, pos);
+}
 
 // Split the |full| path into its directory and basename components.
 // This modifies the input string to null-terminate the output directory
