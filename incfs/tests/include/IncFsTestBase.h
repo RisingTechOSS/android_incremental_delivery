@@ -42,9 +42,11 @@ protected:
         if (!enabled()) {
             GTEST_SKIP() << "test not supported: IncFS is not enabled";
         } else {
+            auto metricsKey = details::c_str(path::baseName(image_dir_path_));
             control_ = mount(image_dir_path_, mount_dir_path_,
                              MountOptions{.readLogBufferPages = 4,
-                                          .defaultReadTimeoutMs = getReadTimeout()});
+                                          .defaultReadTimeoutMs = getReadTimeout(),
+                                          .sysfsName = metricsKey.get()});
             ASSERT_TRUE(control_.cmd() >= 0) << "Expected >= 0 got " << control_.cmd();
             ASSERT_TRUE(control_.pendingReads() >= 0);
             ASSERT_TRUE(control_.logs() >= 0);
