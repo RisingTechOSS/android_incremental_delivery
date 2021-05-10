@@ -1135,6 +1135,11 @@ TEST_F(IncFsTest, ForEachFile) {
               }));
 }
 
+TEST(CStrWrapperTest, EmptyStringView) {
+    ASSERT_STREQ("", details::c_str({}).get());
+    ASSERT_STREQ("", details::c_str({nullptr, 0}).get());
+}
+
 class IncFsGetLastReadErrorTest : public IncFsTestBase {
 protected:
     virtual int32_t getReadTimeout() { return 0; }
