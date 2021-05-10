@@ -33,7 +33,9 @@ namespace details {
 class CStrWrapper {
 public:
     CStrWrapper(std::string_view sv) {
-        if (sv[sv.size()] == '\0') {
+        if (!sv.data()) {
+            mCstr = "";
+        } else if (sv[sv.size()] == '\0') {
             mCstr = sv.data();
         } else {
             mCopy.emplace(sv);
