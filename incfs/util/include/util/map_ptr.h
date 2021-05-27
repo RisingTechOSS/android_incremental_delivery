@@ -66,8 +66,15 @@ public:
     // Returns whether or not the file was able to be memory-mapped.
     bool Create(int fd, off64_t offset, size_t length, const char* file_name);
 
-    // Same thing, but allows for manual verification enablement
+    // Same thing, but allows verification to be disabled when `verify` is `false`, and enabled when
+    // `verify` is true and the file resides on IncFs.
     bool Create(int fd, off64_t offset, size_t length, const char* file_name, bool verify);
+
+    // Same thing, but allows verification to be disabled when `verify` is `false`, and enabled when
+    // `verify` is true regardless of whether the file resides on IncFs (used for benchmarks and
+    // testing).
+    bool CreateForceVerification(int fd, off64_t offset, size_t length, const char* file_name,
+                                 bool verify);
 
     template <typename T = void>
     map_ptr<T> data() const {
