@@ -46,19 +46,29 @@ const char* IncFsFileMap::file_name() const {
     return map_->getFileName();
 }
 
+bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* file_name) {
+    return Create(fd, offset, length, file_name, true /* verify */);
+}
+
 #ifdef __ANDROID__
-bool IsVerificationEnabled(int fd) {
+static bool IsVerificationEnabled(int fd) {
     return isIncFsFd(fd) && isFullyLoaded(fd) != LoadingState::Full;
 }
 
 using data_block_index_t = uint32_t;
 
-data_block_index_t get_block_index(const uint8_t* ptr, const uint8_t* start_block_ptr) {
+static data_block_index_t get_block_index(const uint8_t* ptr, const uint8_t* start_block_ptr) {
     return (ptr - start_block_ptr) / INCFS_DATA_FILE_BLOCK_SIZE;
 }
 
 bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* file_name,
                           bool verify) {
+    return CreateForceVerification(fd, offset, length, file_name,
+                                   verify && IsVerificationEnabled(fd));
+}
+
+bool IncFsFileMap::CreateForceVerification(int fd, off64_t offset, size_t length,
+                                           const char* file_name, bool verify) {
     map_ = std::make_unique<android::FileMap>();
     if (!map_->create(file_name, fd, offset, length, true /* readOnly */)) {
         return false;
@@ -80,15 +90,8 @@ bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* fil
     return true;
 }
 
-bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* file_name) {
-    return Create(fd, offset, length, file_name, IsVerificationEnabled(fd));
-}
-
 bool IncFsFileMap::Verify(const uint8_t* const& data_start, const uint8_t* const& data_end,
                           const uint8_t** prev_verified_block) const {
-#ifndef __ANDROID__
-    return true;
-#else
     const data_block_index_t start_index = get_block_index(data_start, start_block_ptr_);
     const data_block_index_t end_index = get_block_index(data_end - 1U, start_block_ptr_);
 
@@ -130,13 +133,24 @@ bool IncFsFileMap::Verify(const uint8_t* const& data_start, const uint8_t* const
     // Update the previous verified block pointer to optimize repeated verifies on the same block.
     *prev_verified_block = start_block_ptr_ + (end_index * INCFS_DATA_FILE_BLOCK_SIZE);
     return true;
-#endif
 }
 
 #else
-bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* file_name) {
+bool IncFsFileMap::Create(int fd, off64_t offset, size_t length, const char* file_name,
+                          bool verify) {
+    return CreateForceVerification(fd, offset, length, file_name, verify);
+}
+
+bool IncFsFileMap::CreateForceVerification(int fd, off64_t offset, size_t length,
+                                           const char* file_name, bool /* verify */) {
     map_ = std::make_unique<android::FileMap>();
     return map_->create(file_name, fd, offset, length, true /* readOnly */);
+}
+
+bool IncFsFileMap::Verify(const uint8_t* const& /* data_start */,
+                          const uint8_t* const& /* data_end */,
+                          const uint8_t** /* prev_verified_block */) const {
+    return true;
 }
 #endif
 

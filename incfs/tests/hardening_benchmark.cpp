@@ -73,7 +73,7 @@ BENCHMARK(TestRead);
 static void TestMapPtrRaw(benchmark::State& state) {
     auto tmp = makeFile();
     android::incfs::IncFsFileMap map;
-    map.Create(tmp->fd, 0, 1, tmp->path, true);
+    map.CreateForceVerification(tmp->fd, 0, 1, tmp->path, true);
     int val = 0;
     const uint8_t* prev_block = nullptr;
     for (auto _ : state) {
@@ -87,7 +87,7 @@ BENCHMARK(TestMapPtrRaw);
 static void TestMapPtr(benchmark::State& state) {
     auto tmp = makeFile();
     android::incfs::IncFsFileMap map;
-    map.Create(tmp->fd, 0, 1, tmp->path, true);
+    map.CreateForceVerification(tmp->fd, 0, 1, tmp->path, true);
     int val = 0;
     for (auto _ : state) {
         val += map.data<char>().verify();
