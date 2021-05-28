@@ -1153,13 +1153,15 @@ TEST_F(IncFsGetMetricsTest, MetricsWithNoEvents) {
     IncFsLastReadError lastReadError = {.id = fileId(-1),
                                         .timestampUs = static_cast<uint64_t>(-1),
                                         .block = static_cast<IncFsBlockIndex>(-1),
-                                        .errorNo = static_cast<uint32_t>(-1)};
+                                        .errorNo = static_cast<uint32_t>(-1),
+                                        .uid = static_cast<IncFsUid>(-1)};
     EXPECT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
     // All fields should be zero
     EXPECT_EQ(FileId{}, lastReadError.id);
     EXPECT_EQ(0, (int)lastReadError.timestampUs);
     EXPECT_EQ(0, (int)lastReadError.block);
     EXPECT_EQ(0, (int)lastReadError.errorNo);
+    EXPECT_EQ(0, (int)lastReadError.uid);
 
     IncFsMetrics incfsMetrics = {10, 10, 10, 10, 10, 10, 10, 10, 10};
     EXPECT_EQ(0, IncFs_GetMetrics(metrics_key_.c_str(), &incfsMetrics));
@@ -1191,12 +1193,14 @@ TEST_F(IncFsGetMetricsTest, MetricsWithReadsTimeOut) {
     IncFsLastReadError lastReadError = {.id = fileId(-1),
                                         .timestampUs = static_cast<uint64_t>(-1),
                                         .block = static_cast<IncFsBlockIndex>(-1),
-                                        .errorNo = static_cast<uint32_t>(-1)};
+                                        .errorNo = static_cast<uint32_t>(-1),
+                                        .uid = static_cast<IncFsUid>(-1)};
     EXPECT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
     EXPECT_EQ(id, lastReadError.id);
     EXPECT_TRUE(lastReadError.timestampUs > 0);
     EXPECT_EQ(0, (int)lastReadError.block);
     EXPECT_EQ(-ETIME, (int)lastReadError.errorNo);
+    EXPECT_EQ((int)getuid(), (int)lastReadError.uid);
 
     IncFsMetrics incfsMetrics = {10, 10, 10, 10, 10, 10, 10, 10, 10};
     EXPECT_EQ(0, IncFs_GetMetrics(metrics_key_.c_str(), &incfsMetrics));
@@ -1256,12 +1260,14 @@ TEST_F(IncFsGetMetricsTest, MetricsWithHashFailure) {
     IncFsLastReadError lastReadError = {.id = fileId(-1),
                                         .timestampUs = static_cast<uint64_t>(-1),
                                         .block = static_cast<IncFsBlockIndex>(-1),
-                                        .errorNo = static_cast<uint32_t>(-1)};
+                                        .errorNo = static_cast<uint32_t>(-1),
+                                        .uid = static_cast<IncFsUid>(-1)};
     EXPECT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
     EXPECT_EQ(0, std::strcmp(lastReadError.id.data, id.data));
     EXPECT_TRUE(lastReadError.timestampUs > 0);
     EXPECT_EQ(0, (int)lastReadError.block);
     EXPECT_EQ(-EBADMSG, (int)lastReadError.errorNo);
+    EXPECT_EQ((int)getuid(), (int)lastReadError.uid);
 
     IncFsMetrics incfsMetrics = {10, 10, 10, 10, 10, 10, 10, 10, 10};
     EXPECT_EQ(0, IncFs_GetMetrics(metrics_key_.c_str(), &incfsMetrics));
@@ -1309,12 +1315,13 @@ TEST_F(IncFsGetMetricsTest, MetricsWithReadsDelayed) {
     EXPECT_TRUE(android::base::ReadFully(fd, buf, sizeof(buf)));
     wait_before_write_thread.join();
 
-    IncFsLastReadError lastReadError = {.id = fileId(-1), 1, 1, 1};
+    IncFsLastReadError lastReadError = {.id = fileId(-1), 1, 1, 1, 1};
     EXPECT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
     EXPECT_EQ(FileId{}, lastReadError.id);
     EXPECT_EQ(0, (int)lastReadError.timestampUs);
     EXPECT_EQ(0, (int)lastReadError.block);
     EXPECT_EQ(0, (int)lastReadError.errorNo);
+    EXPECT_EQ(0, (int)lastReadError.uid);
 
     IncFsMetrics incfsMetrics = {10, 10, 10, 10, 10, 10, 10, 10, 10};
     EXPECT_EQ(0, IncFs_GetMetrics(metrics_key_.c_str(), &incfsMetrics));
@@ -1359,12 +1366,13 @@ TEST_F(IncFsGetMetricsTest, MetricsWithReadsDelayedPerUidTimeout) {
     ASSERT_GE(fd.get(), 0);
     ASSERT_TRUE(android::base::ReadFully(fd, buf, sizeof(buf)));
 
-    IncFsLastReadError lastReadError = {.id = fileId(-1), 1, 1, 1};
+    IncFsLastReadError lastReadError = {.id = fileId(-1), 1, 1, 1, 1};
     EXPECT_EQ(0, IncFs_GetLastReadError(control_, &lastReadError));
     EXPECT_EQ(FileId{}, lastReadError.id);
     EXPECT_EQ(0, (int)lastReadError.timestampUs);
     EXPECT_EQ(0, (int)lastReadError.block);
     EXPECT_EQ(0, (int)lastReadError.errorNo);
+    EXPECT_EQ(0, (int)lastReadError.uid);
 
     IncFsMetrics incfsMetrics = {10, 10, 10, 10, 10, 10, 10, 10, 10};
     EXPECT_EQ(0, IncFs_GetMetrics(metrics_key_.c_str(), &incfsMetrics));
