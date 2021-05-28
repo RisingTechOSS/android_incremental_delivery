@@ -2067,6 +2067,7 @@ IncFsErrorCode IncFs_GetLastReadError(const IncFsControl* control,
             .timestampUs = args.time_us_out,
             .block = static_cast<IncFsBlockIndex>(args.page_out),
             .errorNo = args.errno_out,
+            .uid = static_cast<IncFsUid>(args.uid_out),
     };
     static_assert(sizeof(args.file_id_out.bytes) == sizeof(lastReadError->id.data));
     memcpy(lastReadError->id.data, args.file_id_out.bytes, sizeof(args.file_id_out.bytes));
