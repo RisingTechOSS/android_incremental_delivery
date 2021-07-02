@@ -318,7 +318,16 @@ public:
     DataLoaderConnector(const DataLoaderConnector&) = delete;
     DataLoaderConnector(const DataLoaderConnector&&) = delete;
     virtual ~DataLoaderConnector() {
+        CHECK(mDataLoader);
+        if (mDataLoader->onDestroy) {
+            mDataLoader->onDestroy(mDataLoader);
+        }
+        checkAndClearJavaException(__func__);
+
         JNIEnv* env = GetOrAttachJNIEnvironment(mJvm);
+
+        const auto& jni = jniIds(env);
+        reportStatusViaCallback(env, mListener, mStorageId, jni.constants.DATA_LOADER_DESTROYED);
 
         env->DeleteGlobalRef(mService);
         env->DeleteGlobalRef(mServiceConnector);
@@ -397,13 +406,6 @@ public:
 
         if (mDataLoader->onStop) {
             mDataLoader->onStop(mDataLoader);
-        }
-        checkAndClearJavaException(__func__);
-    }
-    void onDestroy() {
-        CHECK(mDataLoader);
-        if (mDataLoader->onDestroy) {
-            mDataLoader->onDestroy(mDataLoader);
         }
         checkAndClearJavaException(__func__);
     }
@@ -933,14 +935,13 @@ bool DataLoaderService_OnDestroy(JNIEnv* env, jint storageId) {
         globals().dataLoaderConnectors.erase(dlIt);
     }
     const UniqueControl* control = &(dataLoaderConnector->control());
-    jobject listener = dataLoaderConnector->getListenerLocalRef(env);
 
     // Stop/destroy.
     DataLoaderService_OnStop_NoStatus(control, dataLoaderConnector);
-    dataLoaderConnector->onDestroy();
-
-    const auto& jni = jniIds(env);
-    reportStatusViaCallback(env, listener, storageId, jni.constants.DATA_LOADER_DESTROYED);
+    // This will destroy the last instance of the DataLoaderConnectorPtr and should trigger the
+    // destruction of the DataLoader. However if there are any hanging instances, the destruction
+    // will be postponed. E.g. OnPrepareImage in progress at the same time we call OnDestroy.
+    dataLoaderConnector = {};
 
     return true;
 }
