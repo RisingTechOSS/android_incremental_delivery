@@ -318,11 +318,11 @@ public:
     DataLoaderConnector(const DataLoaderConnector&) = delete;
     DataLoaderConnector(const DataLoaderConnector&&) = delete;
     virtual ~DataLoaderConnector() {
-        CHECK(mDataLoader);
-        if (mDataLoader->onDestroy) {
+        if (mDataLoader && mDataLoader->onDestroy) {
             mDataLoader->onDestroy(mDataLoader);
+            checkAndClearJavaException(__func__);
         }
-        checkAndClearJavaException(__func__);
+        mDataLoader = nullptr;
 
         JNIEnv* env = GetOrAttachJNIEnvironment(mJvm);
 
