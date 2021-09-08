@@ -1555,7 +1555,7 @@ IncFsErrorCode IncFs_IsFullyLoadedByPath(const IncFsControl* control, const char
     if (features() & Features::v2) {
         const auto id = getId(::getxattr, path);
         if (id == kIncFsInvalidFileId) {
-            return -ENOTSUP;
+            return -errno;
         }
         return isFullyLoadedV2(root, id);
     }
@@ -1692,20 +1692,7 @@ IncFsErrorCode IncFs_GetUidReadTimeouts(const IncFsControl* control,
     return 0;
 }
 
-// Trying to detect if this is a mapped file.
-// Not the best way as it might return true for other system files.
-// TODO: remove after IncFS returns ENOTSUP for such files.
-static bool isMapped(int fd) {
-    char buffer[kIncFsFileIdStringLength];
-    const auto res = ::fgetxattr(fd, kIdAttrName, buffer, sizeof(buffer));
-    return res != sizeof(buffer);
-}
-
 static IncFsErrorCode getFileBlockCount(int fd, IncFsBlockCounts* blockCount) {
-    if (isMapped(fd)) {
-        return -ENOTSUP;
-    }
-
     incfs_get_block_count_args args = {};
     auto res = ::ioctl(fd, INCFS_IOC_GET_BLOCK_COUNT, &args);
     if (res < 0) {
