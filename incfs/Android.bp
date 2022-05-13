@@ -44,7 +44,7 @@ license {
 cc_defaults {
     name: "libincfs_defaults_common",
     cpp_std: "c++2a",
-    cflags: ["-Werror", "-Wall", "-Wextra", "-Wno-deprecated-enum-enum-conversion"],
+    cflags: ["-Werror", "-Wall", "-Wextra", "-Wno-deprecated-enum-enum-conversion", "-D_FILE_OFFSET_BITS=64"],
     tidy: true,
     tidy_checks: [
         "android-*",
